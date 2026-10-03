@@ -1,5 +1,7 @@
 # RowdyHacks_XII_Inside_Men
-The official repo for the Inside Men at Rowdy Hacks XII!
+The official repo for our team at Rowdy Hacks XII!
+
+Commit history is extremely unreliable due to all of us pushing from the same Pi - fun!
 
                   ,--.    ,--.
                  ((O ))--((O ))

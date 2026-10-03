@@ -22,9 +22,7 @@ def read_key(fd):
             key += os.read(fd, 2).decode(errors='ignore')
     return key
 
-
 class KeyboardToUSB(Node):
-
     def __init__(self):
         super().__init__('keyboard_to_usb')
 
@@ -79,6 +77,38 @@ class KeyboardToUSB(Node):
         except serial.SerialTimeoutException:
             self.get_logger().error("Serial write timed out: is the Pico running the firmware?")
 
+class AlgorithmToUSB(Node):
+    def __init__(self):
+        super().__init__('algorithm_to_usb')
+
+        self.publisher_ = self.create_publisher(String, 'usb_data', 10)
+        # write_timeout: if the Pico stops reading, fail instead of freezing the key loop
+        self.serial = serial.Serial('/dev/ttyACM0', 115200, timeout=0.1, write_timeout=0.5)
+
+        self.duty_cycle = 50
+        self.cmd = 0
+
+        self.get_logger().info(
+            "\n============================================\n"
+            "Algorithm to USB Node Started!\n"
+            "============================================\n"
+        )
+
+    def run(self):
+        while True:
+            self.cmd = 1
+            self.publish_usb()
+
+    def publish_usb(self):
+        msg = String()
+        msg.data = f"{self.cmd} {self.duty_cycle}"
+        self.publisher_.publish(msg)                     # optional: keeps it visible on the ROS topic
+        self.get_logger().info(f"Published USB_data: {msg.data}")
+        try:
+            self.serial.write((msg.data + '\n').encode())    # this is what actually reaches the Pico
+        except serial.SerialTimeoutException:
+            self.get_logger().error("Serial write timed out: is the Pico running the firmware?")
+
 
 def main(args=None):
     if not sys.stdin.isatty():
@@ -86,7 +116,8 @@ def main(args=None):
         return
 
     rclpy.init(args=args)
-    node = KeyboardToUSB()
+    node = AlgorithmToUSB()
+    node.run()
 
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
