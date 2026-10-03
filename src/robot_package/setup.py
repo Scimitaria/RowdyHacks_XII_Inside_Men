@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'keyboard = robot_package.keyboard_node:main',
+            'imu_tracker = robot_package.imu_tracker_node:main',
         ],
     },
 )
