@@ -52,3 +52,61 @@ qtcreator-*
 
 # Catkin custom files
 CATKIN_IGNORE
+
+# ROS2 / colcon build artifacts
+install/
+log/
+COLCON_IGNORE
+AMENT_IGNORE
+.colcon/
+compile_commands.json
+
+# ROS bags and runtime data
+*.bag
+*.db3
+*.db3-shm
+*.db3-wal
+*.mcap
+rosbag2_*/
+core
+core.*
+
+# Python
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Virtual environments (uv)
+.venv/
+venv/
+env/
+
+# C/C++ build outputs
+*.o
+*.so
+*.a
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+
+# IDEs / editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# OS files
+Thumbs.db
+
+# Secrets
+.env
