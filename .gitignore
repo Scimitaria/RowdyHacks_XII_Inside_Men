@@ -57,8 +57,6 @@ CATKIN_IGNORE
 # ROS2 / colcon build artifacts
 install/
 log/
-COLCON_IGNORE
-AMENT_IGNORE
 .colcon/
 compile_commands.json
 
