@@ -1,16 +1,12 @@
-import os
-import select
-import sys
-import termios
-import tty
-
-import rclpy
+import os,select,sys,termios,tty,rclpy,serial
 from rclpy.node import Node
-from std_msgs.msg import Int32
+from std_msgs.msg import String
 
 # Terminal escape sequences for arrow keys
 KEY_UP = '\x1b[A'
 KEY_DOWN = '\x1b[B'
+KEY_RIGHT = '\x1b[C'
+KEY_LEFT = '\x1b[D'
 KEY_ESC = '\x1b'
 KEY_SPACE = ' '
 
@@ -27,26 +23,26 @@ def read_key(fd):
     return key
 
 
-class KeyboardToPWM(Node):
+class KeyboardToUSB(Node):
 
     def __init__(self):
-        super().__init__('keyboard_to_pwm')
+        super().__init__('keyboard_to_usb')
 
-        # Create a publisher on the 'pwm_output' topic
-        self.publisher_ = self.create_publisher(Int32, 'pwm_output', 10)
+        self.publisher_ = self.create_publisher(String, 'usb_data', 10)
+        # write_timeout: if the Pico stops reading, fail instead of freezing the key loop
+        self.serial = serial.Serial('/dev/ttyACM0', 115200, timeout=0.1, write_timeout=0.5)
 
-        # Initialize PWM values (assuming standard 0 to 255 range)
-        self.pwm_value = 0
-        self.step = 5
-        self.max_pwm = 255
-        self.min_pwm = 0
+        self.duty_cycle = 50
+        self.cmd = 0
 
         self.get_logger().info(
             "\n============================================\n"
-            "Keyboard to PWM Node Started!\n"
-            "Use UP arrow to increase PWM.\n"
-            "Use DOWN arrow to decrease PWM.\n"
-            "Use SPACEBAR to stop (0 PWM).\n"
+            "Keyboard to USB Node Started!\n"
+            "Use UP arrow to send 1, duty_cycle.\n"
+            "Use DOWN arrow to send 2, duty_cycle.\n"
+            "Use LEFT arrow to send 3, duty_cycle.\n"
+            "Use RIGHT arrow to send 4, duty_cycle.\n"
+            "Use SPACEBAR to stop (5).\n"
             "Press ESC to exit.\n"
             "============================================\n"
         )
@@ -54,24 +50,34 @@ class KeyboardToPWM(Node):
     def on_press(self, key):
         """Handle a key press. Returns False when the node should exit."""
         if key == KEY_UP:
-            self.pwm_value = min(self.pwm_value + self.step, self.max_pwm)
-            self.publish_pwm()
+            self.cmd = 1
+            self.publish_usb()
         if key == KEY_DOWN:
-            self.pwm_value = max(self.pwm_value - self.step, self.min_pwm)
-            self.publish_pwm()
+            self.cmd = 2
+            self.publish_usb()
+        if key == KEY_LEFT:
+            self.cmd = 3
+            self.publish_usb()
+        if key == KEY_RIGHT:
+            self.cmd = 4
+            self.publish_usb()
         if key == KEY_SPACE:
-            self.pwm_value = 0
-            self.publish_pwm()
+            self.cmd = 5
+            self.publish_usb()
         if key == KEY_ESC:
             self.get_logger().info("Exiting keyboard listener...")
             return False
         return True
 
-    def publish_pwm(self):
-        msg = Int32()
-        msg.data = self.pwm_value
-        self.publisher_.publish(msg)
-        self.get_logger().info(f"Published PWM: {msg.data}")
+    def publish_usb(self):
+        msg = String()
+        msg.data = f"{self.cmd} {self.duty_cycle}"
+        self.publisher_.publish(msg)                     # optional: keeps it visible on the ROS topic
+        self.get_logger().info(f"Published USB_data: {msg.data}")
+        try:
+            self.serial.write((msg.data + '\n').encode())    # this is what actually reaches the Pico
+        except serial.SerialTimeoutException:
+            self.get_logger().error("Serial write timed out: is the Pico running the firmware?")
 
 
 def main(args=None):
@@ -80,7 +86,7 @@ def main(args=None):
         return
 
     rclpy.init(args=args)
-    node = KeyboardToPWM()
+    node = KeyboardToUSB()
 
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
@@ -93,8 +99,9 @@ def main(args=None):
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         # Stop the motor on exit
-        node.pwm_value = 0
-        node.publish_pwm()
+        node.cmd = 5
+        node.publish_usb()
+        node.serial.close()
         node.destroy_node()
         rclpy.shutdown()
 
