@@ -116,8 +116,11 @@ def main(args=None):
         return
 
     rclpy.init(args=args)
-    node = AlgorithmToUSB()
-    node.run()
+    if True:
+        node = KeyboardToUSB()
+    else: 
+        node = AlgorithmToUSB()
+        node.run()
 
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)

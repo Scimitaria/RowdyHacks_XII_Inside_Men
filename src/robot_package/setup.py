@@ -26,6 +26,8 @@ setup(
         'console_scripts': [
             'motor = robot_package.motor_node:main',
             'imu_tracker = robot_package.imu_tracker_node:main',
+            'oak_camera = robot_package.oak_camera_node:main',
+            'camera_viewer = robot_package.camera_viewer_node:main',
         ],
     },
 )

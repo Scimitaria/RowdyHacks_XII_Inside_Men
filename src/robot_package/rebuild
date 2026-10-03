@@ -1,4 +1,13 @@
 #!/bin/bash
+# Usage: ./rebuild <executable>   e.g. ./rebuild oak_camera
+# Builds robot_package inside the uv venv and runs one of its nodes.
+set -e
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT"
+
+source /opt/ros/jazzy/setup.bash
+uv sync                      # keep .venv in line with pyproject.toml / uv.lock
+source .venv/bin/activate    # colcon bakes this python into the node scripts
 colcon build --packages-select robot_package
 source install/setup.bash
-ros2 run robot_package $1
+ros2 run robot_package "$@"
