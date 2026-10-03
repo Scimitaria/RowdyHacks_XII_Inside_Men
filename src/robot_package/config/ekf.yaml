@@ -1,0 +1,39 @@
+# Fuses wheel odometry and the IMU heading. Config order for every *_config:
+#   [x,     y,     z,
+#    roll,  pitch, yaw,
+#    vx,    vy,    vz,
+#    vroll, vpitch, vyaw,
+#    ax,    ay,    az]
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    two_d_mode: true
+    publish_tf: true
+
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom
+
+    # Wheel odometry: trust forward speed and turn rate. Position is left out
+    # so it doesn't fight the IMU, and vy is 0 on a skid/diff-drive robot.
+    # Its covariances must be non-zero or the EKF trusts it blindly.
+    odom0: /wheel/odom
+    odom0_config: [false, false, false,
+                   false, false, false,
+                   true,  false, false,
+                   false, false, true,
+                   false, false, false]
+    odom0_differential: false
+    odom0_queue_size: 10
+
+    # IMU: absolute heading (yaw) only.
+    imu0: /imu/data
+    imu0_config: [false, false, false,
+                  false, false, true,
+                  false, false, false,
+                  false, false, false,
+                  false, false, false]
+    imu0_differential: false
+    imu0_relative: true
+    imu0_queue_size: 10
+    imu0_remove_gravitational_acceleration: false

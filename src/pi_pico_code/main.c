@@ -12,6 +12,12 @@
 #define PIN_BIN2  5
 #define PIN_STBY  6
 
+// Quadrature wheel encoders
+#define PIN_ENC_A_A  10   // motor A, channel A
+#define PIN_ENC_A_B  11   // motor A, channel B
+#define PIN_ENC_B_A  12   // motor B, channel A
+#define PIN_ENC_B_B  13   // motor B, channel B
+
 #define PWM_FREQ_HZ        20000   // above audible range, well under TB6612's 100 kHz max
 #define TURN_DUTY_PERCENT  50      // used by left/right when no duty is given
 
@@ -19,18 +25,26 @@
 // DIR_CW spin it CW from the robot's point of view.
 #define MOTOR_B_REVERSED 1
 
+// The mirrored mounting also flips motor B's encoder, so its count is negated
+// to make both counts go up when the robot drives forward. Flip these if a
+// wheel counts down while driving forward.
+#define ENC_A_REVERSED 0
+#define ENC_B_REVERSED 1
+
 // Serial commands from the Pi, one per line ("<cmd> [duty]", duty is 0-100):
 //   1 <duty>   forward  (both CW)
 //   2 <duty>   backward (both CCW)
 //   3 [duty]   left     (spin in place: A CCW, B CW)
 //   4 [duty]   right    (spin in place: A CW, B CCW)
 //   5          stop     (IN1 = IN2 = L on both motors)
+//   6          encoders (replies "ENC <count_a> <count_b> <time_us>")
 enum {
     CMD_FORWARD  = 1,
     CMD_BACKWARD = 2,
     CMD_LEFT     = 3,
     CMD_RIGHT    = 4,
     CMD_STOP     = 5,
+    CMD_ENCODERS = 6,
 };
 
 typedef struct {
@@ -104,6 +118,66 @@ static void drive(motor_dir_t a, motor_dir_t b, uint percent) {
     motor_set(&motor_b, b, percent);
 }
 
+typedef struct {
+    uint pin_a;
+    uint pin_b;
+    uint8_t state;           // last (A << 1) | B
+    volatile int32_t count;  // written only by the GPIO interrupt
+} encoder_t;
+
+static encoder_t enc_a = { PIN_ENC_A_A, PIN_ENC_A_B, 0, 0 };
+static encoder_t enc_b = { PIN_ENC_B_A, PIN_ENC_B_B, 0, 0 };
+
+// Indexed by (prev_state << 2) | new_state. Forward is A leading B
+// (00 -> 10 -> 11 -> 01); invalid jumps (both pins changed) count as 0.
+static const int8_t quad_table[16] = {
+     0, -1,  1,  0,
+     1,  0,  0, -1,
+    -1,  0,  0,  1,
+     0,  1, -1,  0,
+};
+
+static inline uint8_t encoder_read(const encoder_t *e, uint32_t pins) {
+    return (uint8_t)((((pins >> e->pin_a) & 1u) << 1) | ((pins >> e->pin_b) & 1u));
+}
+
+static void encoder_update(encoder_t *e, uint32_t pins) {
+    uint8_t s = encoder_read(e, pins);
+    e->count += quad_table[(e->state << 2) | s];
+    e->state = s;
+}
+
+// Fires on every edge of all four encoder pins (4x decoding).
+static void encoder_irq(uint gpio, uint32_t events) {
+    (void)events;
+    uint32_t pins = gpio_get_all();
+    if (gpio == enc_a.pin_a || gpio == enc_a.pin_b) encoder_update(&enc_a, pins);
+    else if (gpio == enc_b.pin_a || gpio == enc_b.pin_b) encoder_update(&enc_b, pins);
+}
+
+static void encoder_init(encoder_t *e) {
+    const uint pins[2] = { e->pin_a, e->pin_b };
+    for (int i = 0; i < 2; i++) {
+        gpio_init(pins[i]);
+        gpio_set_dir(pins[i], GPIO_IN);
+        gpio_pull_up(pins[i]);   // most motor encoders are open-collector
+    }
+    e->state = encoder_read(e, gpio_get_all());
+
+    const uint32_t edges = GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL;
+    gpio_set_irq_enabled_with_callback(e->pin_a, edges, true, &encoder_irq);
+    gpio_set_irq_enabled(e->pin_b, edges, true);
+}
+
+static void print_encoders(void) {
+    // Aligned 32-bit reads are atomic on the M0+, so no need to mask the IRQ.
+    int32_t a = enc_a.count;
+    int32_t b = enc_b.count;
+    if (ENC_A_REVERSED) a = -a;
+    if (ENC_B_REVERSED) b = -b;
+    printf("ENC %ld %ld %llu\n", (long)a, (long)b, (unsigned long long)time_us_64());
+}
+
 // Returns false (and prints why) if the line isn't a valid command.
 static bool handle_command(const char *line) {
     int cmd, duty;
@@ -130,8 +204,9 @@ static bool handle_command(const char *line) {
     case CMD_LEFT:     drive(DIR_CCW, DIR_CW,  (uint)duty); break;
     case CMD_RIGHT:    drive(DIR_CW,  DIR_CCW, (uint)duty); break;
     case CMD_STOP:     stop_all(); break;
+    case CMD_ENCODERS: print_encoders(); break;
     default:
-        printf("ERR unknown command %d (use 1-5)\n", cmd);
+        printf("ERR unknown command %d (use 1-6)\n", cmd);
         return false;
     }
     return true;
@@ -146,6 +221,8 @@ int main(void) {
     motor_init(&motor_b);
     pwm_setup();
     stop_all();
+    encoder_init(&enc_a);
+    encoder_init(&enc_b);
 
     // Everything is configured: bring the driver out of standby.
     gpio_put(PIN_STBY, 1);

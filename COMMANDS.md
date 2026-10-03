@@ -62,3 +62,89 @@ ros2 run robot_package oak_camera --ros-args -p fps:=30 -p publish_depth:=false
 ```
 
 Only one process can use the camera at a time, so don't run `oak_camera` and `imu_tracker` together.
+
+## Read the wheel encoders (Pico)
+
+The Pico counts every edge of both encoder channels (GPIO 10/11 = motor A, 12/13 = motor B). Send `6` over `/dev/ttyACM0` and it replies:
+
+```
+ENC <count_a> <count_b> <time_us>
+OK 6
+```
+
+Counts are cumulative since boot and go up when the robot drives forward; `time_us` is the Pico's clock, for computing wheel speed between two reads. If a wheel counts down while driving forward, flip `ENC_A_REVERSED` / `ENC_B_REVERSED` in `src/pi_pico_code/main.c`.
+
+The `odom` node polls this and publishes `/wheel/odom` (`nav_msgs/Odometry`, `odom -> base_link`). It can run alongside `motor`; both share `/dev/ttyACM0`. Set the wheel geometry for your robot:
+
+```bash
+./src/robot_package/rebuild odom --ros-args -p ticks_per_rev:=1440.0 -p wheel_radius:=0.033 -p wheel_base:=0.16
+ros2 topic echo /wheel/odom --field twist.twist   # vx / yaw rate while driving
+```
+
+`ticks_per_rev` is 4 x (encoder pulses per motor turn) x (gear ratio). If turning in place reports too much or too little rotation, adjust `wheel_base`. Add `-p publish_tf:=true` only when running without the EKF.
+
+## Slot counter Pico (optional)
+
+`src/pi_pico_slot_counter` is firmware for a Pico that only counts slotted-disc wheel sensors (GPIO 10 = motor A, GPIO 12 = motor B, one count per slot). Build it and copy the `.uf2` onto the Pico while holding BOOTSEL:
+
+```bash
+cd src/pi_pico_slot_counter && mkdir -p build && cd build && cmake .. && make -j4   # -> pi_pico_slot_counter.uf2
+```
+
+Send `6` and it replies `ENC <count_a> <count_b> <time_us>` like the motor Pico, so `odom` can read it with `-p port:=/dev/ttyACM1 -p ticks_per_rev:=<slots per wheel turn>`. Slot sensors can't sense direction, so counts only go up, even when reversing or turning in place.
+
+## Fuse wheel odometry + IMU (EKF)
+
+One-time install of the EKF package:
+
+```bash
+sudo apt install ros-jazzy-robot-localization
+```
+
+With `imu_tracker` and `odom` (`/wheel/odom`) running, start the adapter and EKF:
+
+```bash
+ros2 launch robot_package localization.launch.py
+```
+
+`imu_adapter` turns `rotation_degrees` into `/imu/data`; the EKF (`config/ekf.yaml`) fuses it with `/wheel/odom` into `/odometry/filtered` and the `odom -> base_link` TF.
+
+Check it:
+
+```bash
+ros2 topic hz /odometry/filtered                 # ~30 Hz
+ros2 run tf2_ros tf2_echo odom base_link         # fused transform
+```
+
+The wheel-odometry node must use `frame_id: odom` / `child_frame_id: base_link`, fill non-zero covariances, and not publish its own `odom -> base_link` TF.
+
+## Build a map (RTAB-Map)
+
+One-time install of RTAB-Map:
+
+```bash
+sudo apt install ros-jazzy-rtabmap-slam
+```
+
+Needs three things running: `oak_camera`, the localization launch above (`/odometry/filtered` + `odom -> base_link` TF), and a static transform from `base_link` to the camera. RTAB-Map expects the camera frame in the optical convention (z forward, x right, y down), so the transform must include that rotation. Example for a camera mounted 10 cm forward and 20 cm up, facing forward:
+
+```bash
+ros2 run tf2_ros static_transform_publisher --x 0.1 --z 0.2 --roll -1.5708 --yaw -1.5708 --frame-id base_link --child-frame-id oak_camera
+```
+
+Then start the feeder and RTAB-Map together:
+
+```bash
+ros2 launch robot_package rtabmap.launch.py
+ros2 launch robot_package rtabmap.launch.py new_map:=false database_path:=/home/levi/maps/lab.db   # keep adding to a saved map
+```
+
+`rtabmap_feeder` pairs the RGB and depth frames, publishes a `CameraInfo`, and holds frames back until odometry and TF are available. It logs how many frames it sent each 2 s and why it is holding back. Set the camera intrinsics with `-p fx:=... -p fy:=... -p cx:=... -p cy:=...` (the defaults are only a rough guess).
+
+Check it and view the map:
+
+```bash
+ros2 topic hz /rtabmap_input/rgb/image   # ~15 Hz once odometry and TF are up
+ros2 topic echo --once /map --field info # occupancy grid built by RTAB-Map
+rtabmap-databaseViewer ~/.ros/rtabmap.db # browse the saved map (from ros-jazzy-rtabmap)
+```
