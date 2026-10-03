@@ -1,0 +1,17 @@
+<CycloneDDS>
+  <Domain Id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface name="tailscale0"/>
+      </Interfaces>
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>50</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer address="100.99.23.105"/>  <!-- Pi -->
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
