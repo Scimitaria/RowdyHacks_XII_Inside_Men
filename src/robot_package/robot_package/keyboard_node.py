@@ -53,18 +53,19 @@ class KeyboardToPWM(Node):
 
     def on_press(self, key):
         """Handle a key press. Returns False when the node should exit."""
-        if key == KEY_UP:
-            self.pwm_value = min(self.pwm_value + self.step, self.max_pwm)
-            self.publish_pwm()
-        elif key == KEY_DOWN:
-            self.pwm_value = max(self.pwm_value - self.step, self.min_pwm)
-            self.publish_pwm()
-        elif key == KEY_SPACE:
-            self.pwm_value = 0
-            self.publish_pwm()
-        elif key == KEY_ESC:
-            self.get_logger().info("Exiting keyboard listener...")
-            return False
+        match key:
+            case KEY_UP:
+                self.pwm_value = min(self.pwm_value + self.step, self.max_pwm)
+                self.publish_pwm()
+            case KEY_DOWN:
+                self.pwm_value = max(self.pwm_value - self.step, self.min_pwm)
+                self.publish_pwm()
+            case KEY_SPACE:
+                self.pwm_value = 0
+                self.publish_pwm()
+            case KEY_ESC:
+                self.get_logger().info("Exiting keyboard listener...")
+                return False
         return True
 
     def publish_pwm(self):
@@ -76,8 +77,7 @@ class KeyboardToPWM(Node):
 
 def main(args=None):
     if not sys.stdin.isatty():
-        print("keyboard node needs an interactive terminal (use `ros2 run`, not a launch file)",
-              file=sys.stderr)
+        print("keyboard node needs an interactive terminal (use `ros2 run`, not a launch file)", file=sys.stderr)
         return
 
     rclpy.init(args=args)
@@ -88,8 +88,7 @@ def main(args=None):
     try:
         # cbreak: deliver keys immediately without echo, but keep Ctrl+C working
         tty.setcbreak(fd)
-        while rclpy.ok() and node.on_press(read_key(fd)):
-            pass
+        while rclpy.ok() and node.on_press(read_key(fd)): pass
     except KeyboardInterrupt:
         pass
     finally:
