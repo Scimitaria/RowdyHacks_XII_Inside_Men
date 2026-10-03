@@ -53,19 +53,18 @@ class KeyboardToPWM(Node):
 
     def on_press(self, key):
         """Handle a key press. Returns False when the node should exit."""
-        match key:
-            case KEY_UP:
-                self.pwm_value = min(self.pwm_value + self.step, self.max_pwm)
-                self.publish_pwm()
-            case KEY_DOWN:
-                self.pwm_value = max(self.pwm_value - self.step, self.min_pwm)
-                self.publish_pwm()
-            case KEY_SPACE:
-                self.pwm_value = 0
-                self.publish_pwm()
-            case KEY_ESC:
-                self.get_logger().info("Exiting keyboard listener...")
-                return False
+        if key == KEY_UP:
+            self.pwm_value = min(self.pwm_value + self.step, self.max_pwm)
+            self.publish_pwm()
+        if key == KEY_DOWN:
+            self.pwm_value = max(self.pwm_value - self.step, self.min_pwm)
+            self.publish_pwm()
+        if key == KEY_SPACE:
+            self.pwm_value = 0
+            self.publish_pwm()
+        if key == KEY_ESC:
+            self.get_logger().info("Exiting keyboard listener...")
+            return False
         return True
 
     def publish_pwm(self):
