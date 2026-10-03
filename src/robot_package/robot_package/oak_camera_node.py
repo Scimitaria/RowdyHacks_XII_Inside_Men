@@ -1,13 +1,23 @@
-"""Publish RGB and depth images from the OAK-D Pro W."""
+"""Publish RGB and depth images and the IMU heading from the OAK-D Pro W."""
+
+import math
 
 import depthai as dai
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+from std_msgs.msg import Float64
+
+from robot_package.imu_yaw import YawTracker, create_imu_queue
 
 
 class OakCamera(Node):
-    """Publish 'camera/rgb/image_raw' (bgr8) and 'camera/depth/image_raw' (16UC1, mm)."""
+    """Publish 'camera/rgb/image_raw' (bgr8), 'camera/depth/image_raw' (16UC1, mm)
+    and 'rotation_degrees' (IMU heading, the same topic imu_tracker publishes).
+
+    The camera can only be opened by one process, so this node also owns the
+    IMU; don't run imu_tracker alongside it.
+    """
 
     def __init__(self):
         super().__init__('oak_camera')
@@ -17,16 +27,21 @@ class OakCamera(Node):
         self.declare_parameter('rgb_height', 480)
         self.declare_parameter('publish_rgb', True)
         self.declare_parameter('publish_depth', True)
+        self.declare_parameter('publish_imu', True)
+        self.declare_parameter('use_orientation', False)
+        self.declare_parameter('imu_rate', 200)
         self.declare_parameter('frame_id', 'oak_camera')
         fps = self.get_parameter('fps').value
         rgb_size = (self.get_parameter('rgb_width').value,
                     self.get_parameter('rgb_height').value)
         self.publish_rgb = self.get_parameter('publish_rgb').value
         self.publish_depth = self.get_parameter('publish_depth').value
+        self.publish_imu = self.get_parameter('publish_imu').value
         self.frame_id = self.get_parameter('frame_id').value
 
         self.rgb_queue = None
         self.depth_queue = None
+        self.imu_queue = None
         self.rgb_count = 0
         self.depth_count = 0
 
@@ -49,18 +64,27 @@ class OakCamera(Node):
             stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
             self.depth_queue = stereo.depth.createOutputQueue(
                 maxSize=4, blocking=False)
+        if self.publish_imu:
+            use_orientation = self.get_parameter('use_orientation').value
+            self.tracker = YawTracker(use_orientation, self.get_logger().info)
+            self.imu_queue = create_imu_queue(
+                self.pipeline, use_orientation,
+                self.get_parameter('imu_rate').value)
         self.pipeline.start()
 
         if self.publish_rgb:
             self.rgb_pub = self.create_publisher(Image, 'camera/rgb/image_raw', 10)
         if self.publish_depth:
             self.depth_pub = self.create_publisher(Image, 'camera/depth/image_raw', 10)
+        if self.publish_imu:
+            self.imu_pub = self.create_publisher(Float64, 'rotation_degrees', 10)
+            self.get_logger().info('Calibrating gyro, keep the robot still...')
         self.create_timer(0.005, self.poll_camera)
         self.create_timer(1.0, self.log_rates)
 
         self.get_logger().info(
             f'OAK-D streaming at {fps} fps (rgb={self.publish_rgb}, '
-            f'depth={self.publish_depth})')
+            f'depth={self.publish_depth}, imu={self.publish_imu})')
 
     def poll_camera(self):
         if self.rgb_queue is not None:
@@ -71,6 +95,12 @@ class OakCamera(Node):
             for frame in self.depth_queue.tryGetAll():
                 self.depth_pub.publish(self.to_image(frame.getFrame(), '16UC1'))
                 self.depth_count += 1
+        if self.imu_queue is not None:
+            for imu_data in self.imu_queue.tryGetAll():
+                for packet in imu_data.packets:
+                    yaw = self.tracker.update(packet)
+                    if yaw is not None:
+                        self.imu_pub.publish(Float64(data=math.degrees(yaw)))
 
     def to_image(self, array, encoding):
         msg = Image()

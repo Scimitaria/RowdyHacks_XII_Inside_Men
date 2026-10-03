@@ -61,7 +61,7 @@ Node parameters:
 ros2 run robot_package oak_camera --ros-args -p fps:=30 -p publish_depth:=false
 ```
 
-Only one process can use the camera at a time, so don't run `oak_camera` and `imu_tracker` together.
+Only one process can use the camera at a time. `oak_camera` also publishes the IMU heading on `rotation_degrees` (the same topic as `imu_tracker`), so run `oak_camera` on its own and don't start `imu_tracker` alongside it. Use `-p publish_imu:=false` to turn the IMU off, or run `imu_tracker` by itself when you don't need images.
 
 ## Read the wheel encoders (Pico)
 
@@ -77,7 +77,8 @@ Counts are cumulative since boot and go up when the robot drives forward; `time_
 The `odom` node polls this and publishes `/wheel/odom` (`nav_msgs/Odometry`, `odom -> base_link`). It can run alongside `motor`; both share `/dev/ttyACM0`. Set the wheel geometry for your robot:
 
 ```bash
-./src/robot_package/rebuild odom --ros-args -p ticks_per_rev:=1440.0 -p wheel_radius:=0.033 -p wheel_base:=0.16
+./src/robot_package/rebuild odom   # defaults: ticks_per_rev 1960 (490 pulses x 4), wheel_radius 0.0335, wheel_base 0.21
+./src/robot_package/rebuild odom --ros-args -p wheel_base:=0.22   # override any of them
 ros2 topic echo /wheel/odom --field twist.twist   # vx / yaw rate while driving
 ```
 
@@ -91,7 +92,7 @@ ros2 topic echo /wheel/odom --field twist.twist   # vx / yaw rate while driving
 cd src/pi_pico_slot_counter && mkdir -p build && cd build && cmake .. && make -j4   # -> pi_pico_slot_counter.uf2
 ```
 
-Send `6` and it replies `ENC <count_a> <count_b> <time_us>` like the motor Pico, so `odom` can read it with `-p port:=/dev/ttyACM1 -p ticks_per_rev:=<slots per wheel turn>`. Slot sensors can't sense direction, so counts only go up, even when reversing or turning in place.
+Send `6` and it replies `ENC <count_a> <count_b> <time_us>`, where the counts are the slots seen since the previous `6` (they reset on every read, unlike the motor Pico's running totals, so `odom` can't read this Pico as-is). Test it with `.venv/bin/python src/robot_package/robot_package/get_slot_node.py [port]`. Slot sensors can't sense direction, so counts are never negative, even when reversing or turning in place.
 
 ## Fuse wheel odometry + IMU (EKF)
 
@@ -148,3 +149,20 @@ ros2 topic hz /rtabmap_input/rgb/image   # ~15 Hz once odometry and TF are up
 ros2 topic echo --once /map --field info # occupancy grid built by RTAB-Map
 rtabmap-databaseViewer ~/.ros/rtabmap.db # browse the saved map (from ros-jazzy-rtabmap)
 ```
+
+## Run everything
+
+```bash
+ros2 launch robot_package robot.launch.py
+```
+
+Starts `oak_camera` (images + IMU heading), `odom` (wheel odometry), the camera TF, the EKF and RTAB-Map. Don't run any of those separately, and stop any other `oak_camera` first, because only one process can open the camera. Keep the robot still for the first second while the gyro calibrates.
+
+Arguments (add as `name:=value`):
+
+```bash
+ros2 launch robot_package robot.launch.py cam_x:=0.12 cam_y:=0.0 cam_z:=0.2   # camera position on the robot, in meters
+ros2 launch robot_package robot.launch.py mapping:=false                      # skip RTAB-Map, only odometry + camera
+ros2 launch robot_package robot.launch.py new_map:=false                      # keep and extend the saved map
+```
+

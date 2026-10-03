@@ -1,0 +1,63 @@
+"""Start the whole stack: camera + IMU, wheel odometry, EKF and RTAB-Map."""
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    launch_dir = os.path.join(
+        get_package_share_directory('robot_package'), 'launch')
+
+    def include(name, condition=None, **launch_arguments):
+        return IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(launch_dir, name)),
+            launch_arguments=launch_arguments.items(),
+            condition=condition)
+
+    # Publishes camera/rgb, camera/depth and rotation_degrees (the IMU heading).
+    # Keep the robot still for the first second while the gyro calibrates.
+    oak_camera = Node(package='robot_package', executable='oak_camera',
+                      output='screen')
+    # Publishes /wheel/odom from the Pico's encoders (the EKF owns odom -> base_link).
+    wheel_odom = Node(package='robot_package', executable='odom',
+                      output='screen')
+
+    # Where the camera sits on the robot. The rotation turns the robot frame
+    # (x forward, y left, z up) into the camera's image frame (z forward,
+    # x right, y down), which is what RTAB-Map expects.
+    camera_tf = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        arguments=['--x', LaunchConfiguration('cam_x'),
+                   '--y', LaunchConfiguration('cam_y'),
+                   '--z', LaunchConfiguration('cam_z'),
+                   '--roll', '-1.5708', '--pitch', '0', '--yaw', '-1.5708',
+                   '--frame-id', 'base_link',
+                   '--child-frame-id', 'oak_camera'],
+    )
+
+    return LaunchDescription([
+        DeclareLaunchArgument('cam_x', default_value='0.0',
+                              description='Camera forward offset from base_link (m)'),
+        DeclareLaunchArgument('cam_y', default_value='0.1016',
+                              description='Camera left offset from base_link (m), 4 in'),
+        DeclareLaunchArgument('cam_z', default_value='0.3302',
+                              description='Camera height above base_link (m), 13 in'),
+        DeclareLaunchArgument('mapping', default_value='true',
+                              description='Also run the camera feeder and RTAB-Map'),
+        DeclareLaunchArgument('new_map', default_value='true',
+                              description='Delete the old RTAB-Map database on start'),
+        oak_camera,
+        wheel_odom,
+        camera_tf,
+        include('localization.launch.py'),
+        include('rtabmap.launch.py', condition=IfCondition(LaunchConfiguration('mapping')),
+                new_map=LaunchConfiguration('new_map')),
+    ])

@@ -30,7 +30,7 @@ class KeyboardToUSB(Node):
         # write_timeout: if the Pico stops reading, fail instead of freezing the key loop
         self.serial = serial.Serial('/dev/ttyACM0', 115200, timeout=0.1, write_timeout=0.5)
 
-        self.duty_cycle = 50
+        self.duty_cycle = 80
         self.cmd = 0
 
         self.get_logger().info(
@@ -85,7 +85,7 @@ class AlgorithmToUSB(Node):
         # write_timeout: if the Pico stops reading, fail instead of freezing the key loop
         self.serial = serial.Serial('/dev/ttyACM0', 115200, timeout=0.1, write_timeout=0.5)
 
-        self.duty_cycle = 50
+        self.duty_cycle = 75
         self.cmd = 0
 
         self.get_logger().info(

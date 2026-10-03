@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
+#include "hardware/sync.h"
 
 // Slotted optical sensors (one output per wheel, e.g. LM393 speed modules)
 #define PIN_SLOT_A  10   // motor A (left wheel)
@@ -12,8 +13,9 @@
 
 // Serial commands from the Pi, one per line:
 //   6   counts (replies "ENC <count_a> <count_b> <time_us>")
-// The reply matches the motor Pico's encoder reply, so the same odom node can
-// read either. Slot sensors can't tell direction, so counts only go up.
+// Each reply holds the slots counted since the previous "6" (the counters are
+// reset on every read). Slot sensors can't tell direction, so counts are never
+// negative.
 enum {
     CMD_COUNTS = 6,
 };
@@ -49,11 +51,17 @@ static void slot_init(slot_counter_t *s) {
 }
 
 static void print_counts(void) {
-    // Aligned 32-bit reads are atomic on the M0+, so no need to mask the IRQ.
+    // Mask the IRQ so no slot lands between reading a count and zeroing it.
+    uint32_t irq_state = save_and_disable_interrupts();
     uint32_t a = slot_a.count;
     uint32_t b = slot_b.count;
+    slot_a.count = 0;
+    slot_b.count = 0;
+    uint64_t now = time_us_64();
+    restore_interrupts(irq_state);
+
     printf("ENC %lu %lu %llu\n", (unsigned long)a, (unsigned long)b,
-           (unsigned long long)time_us_64());
+           (unsigned long long)now);
 }
 
 // Returns false (and prints why) if the line isn't a valid command.

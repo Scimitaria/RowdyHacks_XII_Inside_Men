@@ -25,9 +25,10 @@ class WheelOdometry(Node):
 
         self.declare_parameter('port', '/dev/ttyACM0')
         self.declare_parameter('rate', 30.0)
-        self.declare_parameter('ticks_per_rev', 1440.0)   # counts per wheel turn, all 4 edges
-        self.declare_parameter('wheel_radius', 0.033)     # m
-        self.declare_parameter('wheel_base', 0.16)        # m, distance between wheel centers
+        # The Pico counts all 4 edges of each encoder pulse: 490 pulses/rev x 4.
+        self.declare_parameter('ticks_per_rev', 1960.0)   # counts per wheel turn
+        self.declare_parameter('wheel_radius', 0.0335)    # m (67 mm wheel)
+        self.declare_parameter('wheel_base', 0.21)        # m, distance between wheel centers
         self.declare_parameter('frame_id', 'odom')
         self.declare_parameter('child_frame_id', 'base_link')
         self.declare_parameter('publish_tf', False)       # leave off when the EKF is running
