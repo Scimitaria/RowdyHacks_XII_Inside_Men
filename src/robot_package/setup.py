@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'keyboard = robot_package.keyboard_node:main',
         ],
     },
 )
