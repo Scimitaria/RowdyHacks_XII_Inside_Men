@@ -28,10 +28,13 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'motor = robot_package.motor_node:main',
+            'motor = robot_package.motor_node:main',            # /motor_cmd -> Pico serial
+            'keyboard = robot_package.keyboard_node:main',      # arrow keys -> /motor_cmd
+            'explore = robot_package.explore_node:main',        # drive toward unmapped space
             'oak_camera = robot_package.oak_camera_node:main',
             'camera_viewer = robot_package.camera_viewer_node:main', #node to view camera feed
             'odom = robot_package.odom_node:main',
+            'image_relay = robot_package.image_relay_node:main',  # camera/rgb/image_raw -> JPEG on .../image_relay/compressed
         ],
     },
 )

@@ -38,6 +38,8 @@
 //   4 [duty]   right    (spin in place: A CW, B CCW)
 //   5          stop     (IN1 = IN2 = L on both motors)
 //   6          encoders (replies "ENC <count_a> <count_b> <time_us>")
+//   7 <l> <r>  per wheel (signed duty -100-100 for A/left and B/right,
+//              positive is forward, negative is backward)
 enum {
     CMD_FORWARD  = 1,
     CMD_BACKWARD = 2,
@@ -45,6 +47,7 @@ enum {
     CMD_RIGHT    = 4,
     CMD_STOP     = 5,
     CMD_ENCODERS = 6,
+    CMD_WHEELS   = 7,
 };
 
 typedef struct {
@@ -118,6 +121,12 @@ static void drive(motor_dir_t a, motor_dir_t b, uint percent) {
     motor_set(&motor_b, b, percent);
 }
 
+// Signed duty: positive drives the wheel forward (CW), negative backward, 0 coasts.
+static void wheel_set(const motor_t *m, int duty) {
+    if (duty == 0) motor_stop(m);
+    else motor_set(m, duty > 0 ? DIR_CW : DIR_CCW, (uint)(duty > 0 ? duty : -duty));
+}
+
 typedef struct {
     uint pin_a;
     uint pin_b;
@@ -180,11 +189,21 @@ static void print_encoders(void) {
 
 // Returns false (and prints why) if the line isn't a valid command.
 static bool handle_command(const char *line) {
-    int cmd, duty;
-    int n = sscanf(line, "%d %d", &cmd, &duty);
+    int cmd, duty, duty_b;
+    int n = sscanf(line, "%d %d %d", &cmd, &duty, &duty_b);
     if (n < 1) {
         printf("ERR expected '<cmd> [duty]'\n");
         return false;
+    }
+
+    if (cmd == CMD_WHEELS) {
+        if (n < 3 || duty < -100 || duty > 100 || duty_b < -100 || duty_b > 100) {
+            printf("ERR command %d needs '<left> <right>' duty cycles (-100-100)\n", cmd);
+            return false;
+        }
+        wheel_set(&motor_a, duty);
+        wheel_set(&motor_b, duty_b);
+        return true;
     }
 
     bool needs_duty = (cmd == CMD_FORWARD || cmd == CMD_BACKWARD);

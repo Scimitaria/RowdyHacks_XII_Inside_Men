@@ -1,4 +1,4 @@
-"""Start the whole stack: camera + IMU, wheel odometry, EKF and RTAB-Map."""
+"""Start the whole stack: camera + IMU, wheel odometry, motor driver, JPEG image relay, EKF and RTAB-Map."""
 
 import os
 
@@ -29,6 +29,14 @@ def generate_launch_description():
     # Publishes /wheel/odom from the Pico's encoders (the EKF owns odom -> base_link).
     wheel_odom = Node(package='robot_package', executable='odom',
                       output='screen')
+    # Sends /motor_cmd to the Pico. Drive with `ros2 run robot_package keyboard`
+    # or `explore` in another terminal; it stops if they go quiet.
+    motor = Node(package='robot_package', executable='motor',
+                 output='screen')
+    # Republishes camera/rgb as JPEG on camera/rgb/image_relay/compressed, for
+    # viewing over Tailscale with `camera_viewer` or RViz.
+    image_relay = Node(package='robot_package', executable='image_relay',
+                       output='screen')
 
     # Where the camera sits on the robot. The rotation turns the robot frame
     # (x forward, y left, z up) into the camera's image frame (z forward,
@@ -57,6 +65,8 @@ def generate_launch_description():
                               description='Delete the old RTAB-Map database on start'),
         oak_camera,
         wheel_odom,
+        motor,
+        image_relay,
         camera_tf,
         include('localization.launch.py'),
         include('rtabmap.launch.py', condition=IfCondition(LaunchConfiguration('mapping')),
