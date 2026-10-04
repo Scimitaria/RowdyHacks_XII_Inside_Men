@@ -1,4 +1,4 @@
-"""Start the whole stack: camera + IMU, wheel odometry, motor driver, JPEG image relay, EKF, RTAB-Map and Nav2."""
+"""Start the whole stack: camera + IMU, wheel odometry, motor driver, JPEG image relay, EKF and RTAB-Map."""
 
 import os
 
@@ -7,7 +7,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -30,8 +30,8 @@ def generate_launch_description():
     wheel_odom = Node(package='robot_package', executable='odom',
                       output='screen')
     # Sends /motor_cmd to the Pico. Drive with `ros2 run robot_package keyboard`
-    # in another terminal, or run `explore` to send Nav2 goals; it stops if
-    # they go quiet.
+    # in another terminal, or start navigation.launch.py to explore; it stops
+    # if they go quiet.
     motor = Node(package='robot_package', executable='motor',
                  output='screen')
     # Republishes camera/rgb as JPEG on camera/rgb/image_relay/compressed, for

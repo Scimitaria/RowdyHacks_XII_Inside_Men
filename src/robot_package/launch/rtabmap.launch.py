@@ -31,11 +31,10 @@ def generate_launch_description():
             'Reg/Force3DoF': 'true',
 
             'Grid/Sensor': '1',
-            # 3D grid for RViz; /map is still made from it in 2D
+            # 2D grid only: /map is what Nav2 and the explorer read
             'Grid/3D': 'false',
-            # Mark the cells between the camera and each obstacle as free.
-            # With Grid/3D this goes through OctoMap, which the apt build of
-            # RTAB-Map has (without it, ray tracing is silently skipped).
+            # Mark the cells between the camera and each obstacle as free, so
+            # seen space isn't left unknown (which the explorer would chase).
             'Grid/RayTracing': 'true',
             'Grid/RangeMin': '0.3',
             'Grid/RangeMax': '4.0',
