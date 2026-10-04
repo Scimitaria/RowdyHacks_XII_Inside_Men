@@ -29,8 +29,10 @@ setup(
     entry_points={
         'console_scripts': [
             'motor = robot_package.motor_node:main',            # /motor_cmd -> Pico serial
+            'motor_pid = robot_package.motor_pid_node:main',    # /motor_pid_cmd ticks/s -> pi_pico_PID serial
             'keyboard = robot_package.keyboard_node:main',      # arrow keys -> /motor_cmd
-            'cmd_vel = robot_package.cmd_vel_node:main',        # Nav2 /cmd_vel -> /motor_cmd
+            'keyboard_odom = robot_package.keyboard_odom_node:main',  # arrow keys -> /motor_pid_cmd ticks/s
+            'cmd_vel = robot_package.cmd_vel_node:main',        # Nav2 /cmd_vel -> /motor_pid_cmd
             'explore = robot_package.explore_node:main',        # send Nav2 goals at unmapped space
             'oak_camera = robot_package.oak_camera_node:main',
             'camera_viewer = robot_package.camera_viewer_node:main', #node to view camera feed

@@ -55,16 +55,19 @@ def generate_launch_description():
         }],
     )
 
-    # Nav2's /cmd_vel -> per-wheel duty on /motor_cmd. Set max_wheel_speed
-    # from the calibration in COMMANDS.md.
+    # Nav2's /cmd_vel -> per-wheel ticks/s on /motor_pid_cmd (needs
+    # robot.launch.py's default motor_driver:=pid). Keep max_tps equal to
+    # MAX_TARGET_TPS in pi_pico_PID/main.c: 3046 ticks/s is ~0.33 m/s per wheel,
+    # which caps Nav2's speeds in nav2_params.yaml.
     cmd_vel = Node(
         package='robot_package',
         executable='cmd_vel',
         output='screen',
         parameters=[{
-            'max_wheel_speed': 0.5,
-            'min_duty': 30,
+            'wheel_radius': 0.0335,
+            'ticks_per_rev': 1960.0,
             'wheel_base': 0.21,
+            'max_tps': 3046,
         }],
     )
     # Picks frontiers on /map and sends them to Nav2; waits for Nav2 to come up

@@ -7,7 +7,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import AndSubstitution, LaunchConfiguration
+from launch.substitutions import AndSubstitution, EqualsSubstitution, LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -29,11 +29,21 @@ def generate_launch_description():
     # Publishes /wheel/odom from the Pico's encoders (the EKF owns odom -> base_link).
     wheel_odom = Node(package='robot_package', executable='odom',
                       output='screen')
-    # Sends /motor_cmd to the Pico. Drive with `ros2 run robot_package keyboard`
-    # in another terminal, or start navigation.launch.py to explore; it stops
-    # if they go quiet.
+    # Motor driver, picked with motor_driver:=pid|open_loop; both stop the
+    # robot if their commands go quiet.
+    # pid (pi_pico_PID firmware): sends /motor_pid_cmd wheel speeds (ticks/s) to
+    # the Pico. Drive with `ros2 run robot_package keyboard_odom`.
+    motor_pid = Node(package='robot_package', executable='motor_pid',
+                     output='screen',
+                     condition=IfCondition(EqualsSubstitution(
+                         LaunchConfiguration('motor_driver'), 'pid')))
+    # open_loop (pi_pico_code firmware): sends /motor_cmd duty cycles to the Pico.
+    # Drive with `ros2 run robot_package keyboard`, or start navigation.launch.py
+    # to explore.
     motor = Node(package='robot_package', executable='motor',
-                 output='screen')
+                 output='screen',
+                 condition=IfCondition(EqualsSubstitution(
+                     LaunchConfiguration('motor_driver'), 'open_loop')))
     # Republishes camera/rgb as JPEG on camera/rgb/image_relay/compressed, for
     # viewing over Tailscale with `camera_viewer` or RViz.
     image_relay = Node(package='robot_package', executable='image_relay',
@@ -66,8 +76,13 @@ def generate_launch_description():
                               description='Delete the old RTAB-Map database on start'),
         DeclareLaunchArgument('navigation', default_value='true',
                               description='Also run Nav2 (needs mapping:=true)'),
+        DeclareLaunchArgument('motor_driver', default_value='pid',
+                              choices=['pid', 'open_loop'],
+                              description='pid: motor_pid (pi_pico_PID firmware), '
+                                          'open_loop: motor (pi_pico_code firmware)'),
         oak_camera,
         wheel_odom,
+        motor_pid,
         motor,
         camera_tf,
         include('localization.launch.py'),

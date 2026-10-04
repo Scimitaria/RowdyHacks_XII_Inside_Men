@@ -201,22 +201,15 @@ ros2 launch robot_package navigation.launch.py
 It starts:
 - `point_cloud_xyz`, which turns the depth image into `/camera/depth/points` for Nav2's obstacle layers
 - the Nav2 servers (params in `config/nav2_params.yaml`), planning on RTAB-Map's `/map`
-- `cmd_vel`, which turns Nav2's `/cmd_vel` into per-wheel duty on `/motor_cmd` and goes quiet when Nav2 stops, so `keyboard` still works in between
+- `cmd_vel`, which turns Nav2's `/cmd_vel` into per-wheel speeds (encoder ticks/s) on `/motor_pid_cmd` for `motor_pid` and goes quiet when Nav2 stops, so `keyboard_odom` still works in between
 - `explore`
 
 `explore` spins once to look around, then picks the nearest reachable edge of the map and sends it to Nav2 as a goal. If the camera sees past that edge before the robot gets there, it switches to the next one. Frontiers Nav2 can't reach, or that stay unmapped after the robot gets there (glass, black surfaces), are skipped. It logs "exploration done" when nothing is left. Ctrl+C stops everything. You can also send goals by hand from RViz's "2D Goal Pose".
 
-Calibrate `cmd_vel` once, robot on the floor with `robot.launch.py` running: drive at full duty for a moment and read the speed:
+This needs the `pi_pico_PID` firmware on the Pico and `robot.launch.py`'s default `motor_driver:=pid`. The wheels' PI loops hold the speed, so there's nothing to calibrate beyond `MAX_TARGET_TPS` (from `get_slots_per_sec.py`). Keep the `cmd_vel` node's `max_tps` (in `navigation.launch.py`) equal to it. At 3046 ticks/s each wheel tops out around 0.33 m/s, which is why Nav2's `desired_linear_vel` is 0.3. Check it with only the `cmd_vel` node running (not `navigation.launch.py`, whose explorer would drive too):
 
 ```bash
-ros2 topic pub -r 10 -t 20 /motor_cmd std_msgs/msg/String "data: '1 100'"
-ros2 topic echo /wheel/odom --field twist.twist.linear.x   # in another terminal
-```
-
-Put that speed in the `cmd_vel` node's `max_wheel_speed` parameter (in `navigation.launch.py`), and raise `min_duty` if the wheels don't turn at small speeds. Check it with only the `cmd_vel` node running (not `navigation.launch.py`, whose explorer would drive too):
-
-```bash
-ros2 run robot_package cmd_vel --ros-args -p max_wheel_speed:=0.5
+ros2 run robot_package cmd_vel
 ros2 topic pub -r 10 -t 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.15}}"   # /wheel/odom should read ~0.15
 ros2 lifecycle get /bt_navigator                                                  # active once Nav2 is up
 ```

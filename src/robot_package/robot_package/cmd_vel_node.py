@@ -1,4 +1,6 @@
-"""Turn Nav2's velocity commands on 'cmd_vel' into per-wheel duty on 'motor_cmd'."""
+"""Turn Nav2's velocity commands on 'cmd_vel' into per-wheel speeds on 'motor_pid_cmd'."""
+
+import math
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -6,34 +8,39 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from robot_package.motor_node import CMD_STOP, CMD_WHEELS
+from robot_package.motor_pid_node import CMD_SPEED, CMD_STOP
 
 
 class CmdVel(Node):
-    """Subscribe to 'cmd_vel' (geometry_msgs/Twist) and publish "7 <left> <right>".
+    """Subscribe to 'cmd_vel' (geometry_msgs/Twist) and publish "1 <left> <right>".
 
     Only linear.x (forward m/s) and angular.z (counter-clockwise rad/s) matter
-    for a two-wheeled robot. The motors are open loop, so speed maps straight
-    to duty: 'max_wheel_speed' is the wheel speed at 100 % duty.
+    for a two-wheeled robot. Each wheel's speed is converted to encoder ticks/s
+    for the Pico's PI loops. If a wheel would exceed 'max_tps', both wheels are
+    scaled down together so the robot still follows the same curve, just slower.
 
-    While Twists arrive the command is republished (motor_driver stops the
+    While Twists arrive the command is republished (motor_pid_driver stops the
     robot if it goes quiet for 1 s). Once they stop for 'timeout' seconds, one
-    stop is sent and then nothing, so `keyboard` can drive in between.
+    stop is sent and then nothing, so `keyboard_odom` can drive in between.
     """
 
     def __init__(self):
         super().__init__('cmd_vel_to_motor')
 
-        self.declare_parameter('max_wheel_speed', 0.5)   # m/s at 100 % duty (calibrate)
-        self.declare_parameter('min_duty', 30)           # wheels don't turn below this
-        self.declare_parameter('wheel_base', 0.21)       # m, same as odom
-        self.declare_parameter('timeout', 0.5)           # s without cmd_vel before stopping
-        self.max_wheel_speed = self.get_parameter('max_wheel_speed').value
-        self.min_duty = self.get_parameter('min_duty').value
+        self.declare_parameter('wheel_radius', 0.0335)    # m, same as odom
+        self.declare_parameter('ticks_per_rev', 1960.0)   # encoder ticks per wheel turn, same as odom
+        self.declare_parameter('wheel_base', 0.21)        # m, same as odom
+        self.declare_parameter('max_tps', 3046)           # MAX_TARGET_TPS in the firmware
+        self.declare_parameter('timeout', 0.5)            # s without cmd_vel before stopping
+        wheel_radius = self.get_parameter('wheel_radius').value
+        ticks_per_rev = self.get_parameter('ticks_per_rev').value
         self.wheel_base = self.get_parameter('wheel_base').value
+        self.max_tps = self.get_parameter('max_tps').value
         self.timeout = self.get_parameter('timeout').value
 
-        self.publisher_ = self.create_publisher(String, 'motor_cmd', 10)
+        self.ticks_per_meter = ticks_per_rev / (2.0 * math.pi * wheel_radius)
+
+        self.publisher_ = self.create_publisher(String, 'motor_pid_cmd', 10)
         self.create_subscription(Twist, 'cmd_vel', self.on_twist, 10)
         self.create_timer(0.1, self.republish)
 
@@ -41,24 +48,25 @@ class CmdVel(Node):
         self.last_msg_time = None
 
         self.get_logger().info(
-            f'cmd_vel -> motor_cmd: max_wheel_speed={self.max_wheel_speed} m/s, '
-            f'min_duty={self.min_duty}, wheel_base={self.wheel_base} m')
+            f'cmd_vel -> motor_pid_cmd: {self.ticks_per_meter:.0f} ticks/m, '
+            f'max {self.max_tps} ticks/s ({self.max_tps / self.ticks_per_meter:.2f} m/s), '
+            f'wheel_base={self.wheel_base} m')
 
-    def duty(self, speed):
-        """Signed duty (-100-100) for a wheel speed in m/s."""
-        duty = round(100 * speed / self.max_wheel_speed)
-        if duty == 0:
-            return 0
-        magnitude = min(max(abs(duty), self.min_duty), 100)
-        return magnitude if duty > 0 else -magnitude
+    def wheel_tps(self, v, w):
+        """Signed (left, right) wheel speeds in ticks/s for v m/s and w rad/s."""
+        left = (v - w * self.wheel_base / 2) * self.ticks_per_meter
+        right = (v + w * self.wheel_base / 2) * self.ticks_per_meter
+        fastest = max(abs(left), abs(right))
+        if fastest > self.max_tps:
+            left *= self.max_tps / fastest
+            right *= self.max_tps / fastest
+        return round(left), round(right)
 
     def on_twist(self, msg):
-        v, w = msg.linear.x, msg.angular.z
-        left = self.duty(v - w * self.wheel_base / 2)
-        right = self.duty(v + w * self.wheel_base / 2)
-        line = f'{CMD_WHEELS} {left} {right}' if left or right else f'{CMD_STOP}'
+        left, right = self.wheel_tps(msg.linear.x, msg.angular.z)
+        line = f'{CMD_SPEED} {left} {right}' if left or right else f'{CMD_STOP}'
         if line != self.line:
-            self.get_logger().debug(f'motor_cmd: {line}')
+            self.get_logger().debug(f'motor_pid_cmd: {line}')
         self.line = line
         self.last_msg_time = self.get_clock().now()
         self.publisher_.publish(String(data=line))
@@ -68,7 +76,7 @@ class CmdVel(Node):
             return
         age = (self.get_clock().now() - self.last_msg_time).nanoseconds * 1e-9
         if age > self.timeout:
-            # Nav2 stopped sending: stop once, then leave motor_cmd to others
+            # Nav2 stopped sending: stop once, then leave motor_pid_cmd to others
             self.publisher_.publish(String(data=f'{CMD_STOP}'))
             self.line = None
             return

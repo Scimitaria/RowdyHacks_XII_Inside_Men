@@ -50,11 +50,11 @@ controller_server:
     controller_plugins: ["FollowPath"]
     use_realtime_priority: false
 
-    # Open-loop motors: give it a while before calling the robot stuck
+    # Allow for spinning in place to face the path before calling the robot stuck
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.3
-      movement_time_allowance: 15.0
+      movement_time_allowance: 10.0
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       stateful: true
@@ -62,7 +62,9 @@ controller_server:
       yaw_goal_tolerance: 0.4
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.4
+      # Wheel top speed is ~0.33 m/s (MAX_TARGET_TPS 3046 in pi_pico_PID); on
+      # curves cmd_vel_node slows both wheels to keep the outer one under it.
+      desired_linear_vel: 0.3
       lookahead_dist: 0.5
       min_lookahead_dist: 0.3
       max_lookahead_dist: 0.8
@@ -77,11 +79,11 @@ controller_server:
       use_cost_regulated_linear_velocity_scaling: false
       regulated_linear_scaling_min_radius: 0.9
       regulated_linear_scaling_min_speed: 0.1
-      # Turn in place toward the path before driving (open loop: see cmd_vel_node)
+      # Turn in place toward the path before driving
       use_rotate_to_heading: true
-      rotate_to_heading_angular_vel: 1.0
+      rotate_to_heading_angular_vel: 2.0   # ~1950 ticks/s per wheel
       rotate_to_heading_min_angle: 0.6
-      max_angular_accel: 3.2
+      max_angular_accel: 4.0
       allow_reversing: false
       max_robot_pose_search_dist: 10.0
 
@@ -104,9 +106,9 @@ behavior_server:
     robot_base_frame: base_link
     transform_tolerance: 0.2
     simulate_ahead_time: 2.0
-    max_rotational_vel: 1.0
+    max_rotational_vel: 2.0
     min_rotational_vel: 0.4
-    rotational_acc_lim: 3.2
+    rotational_acc_lim: 4.0
 
 local_costmap:
   local_costmap:
