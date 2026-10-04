@@ -30,7 +30,6 @@ setup(
         'console_scripts': [
             'motor = robot_package.motor_node:main',            # /motor_cmd -> Pico serial
             'keyboard = robot_package.keyboard_node:main',      # arrow keys -> /motor_cmd
-            'explore = robot_package.explore_node:main',        # drive toward unmapped space
             'oak_camera = robot_package.oak_camera_node:main',
             'camera_viewer = robot_package.camera_viewer_node:main', #node to view camera feed
             'odom = robot_package.odom_node:main',

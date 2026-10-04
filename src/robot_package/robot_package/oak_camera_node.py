@@ -31,6 +31,8 @@ class OakCamera(Node):
     def __init__(self):
         super().__init__('oak_camera')
 
+        self.declare_parameter('ir_dot_intensity', 0.7) 
+
         self.declare_parameter('fps', 15)
         # 640x400 matches the Pro W sensors' 16:10 shape, so nothing is
         # cropped and RGB and depth come out the same size.
@@ -66,7 +68,7 @@ class OakCamera(Node):
             cam = self.pipeline.create(dai.node.Camera).build(
                 dai.CameraBoardSocket.CAM_A)
             outputs['rgb'] = cam.requestOutput(
-                self.size, dai.ImgFrame.Type.BGR888p, fps=fps)
+                self.size, dai.ImgFrame.Type.BGR888p, fps=fps, enableUndistortion=True)
         if publish_depth:
             left = self.pipeline.create(dai.node.Camera).build(
                 dai.CameraBoardSocket.CAM_B)
@@ -78,6 +80,18 @@ class OakCamera(Node):
             # Line depth up with the RGB camera so pixels match.
             stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
             stereo.setOutputSize(*self.size)
+            stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.ROBOTICS)
+            stereo.setLeftRightCheck(True)
+            stereo.setSubpixel(True)
+            cfg = stereo.initialConfig
+            cfg.setConfidenceThreshold(200)
+            pp = cfg.postProcessing
+            pp.speckleFilter.enable = True
+            pp.speckleFilter.speckleRange = 48
+            pp.spatialFilter.enable = True
+            pp.temporalFilter.enable = False
+            pp.thresholdFilter.minRange = 300    # mm
+            pp.thresholdFilter.maxRange = 4000   # mm, matches Grid/RangeMax
             outputs['depth'] = stereo.depth
 
         self.stream_names = list(outputs)
@@ -100,6 +114,10 @@ class OakCamera(Node):
                 self.pipeline, use_orientation,
                 self.get_parameter('imu_rate').value)
         self.pipeline.start()
+        device = self.pipeline.getDefaultDevice()
+        device.setIrLaserDotProjectorIntensity(
+            float(self.get_parameter('ir_dot_intensity').value))
+        device.setIrFloodLightIntensity(0.0)
 
         if publish_rgb:
             self.rgb_pub = self.create_publisher(Image, 'camera/rgb/image_raw', 10)
@@ -135,8 +153,8 @@ class OakCamera(Node):
         info.width, info.height = width, height
         # DepthAI stores 14 coefficients; the first 8 are the
         # rational_polynomial model (k1, k2, p1, p2, k3, k4, k5, k6).
-        info.distortion_model = 'rational_polynomial'
-        info.d = [float(x) for x in d[:8]]
+        info.distortion_model = 'plumb_bob'
+        info.d = [0.0] * 5
         info.k = [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]
         info.r = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
         info.p = [fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0]

@@ -1,4 +1,4 @@
-"""Start the whole stack: camera + IMU, wheel odometry, motor driver, JPEG image relay, EKF and RTAB-Map."""
+"""Start the whole stack: camera + IMU, wheel odometry, motor driver, JPEG image relay, EKF, RTAB-Map and Nav2."""
 
 import os
 
@@ -7,7 +7,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -30,7 +30,8 @@ def generate_launch_description():
     wheel_odom = Node(package='robot_package', executable='odom',
                       output='screen')
     # Sends /motor_cmd to the Pico. Drive with `ros2 run robot_package keyboard`
-    # or `explore` in another terminal; it stops if they go quiet.
+    # in another terminal, or run `explore` to send Nav2 goals; it stops if
+    # they go quiet.
     motor = Node(package='robot_package', executable='motor',
                  output='screen')
     # Republishes camera/rgb as JPEG on camera/rgb/image_relay/compressed, for
@@ -63,10 +64,11 @@ def generate_launch_description():
                               description='Also run RTAB-Map'),
         DeclareLaunchArgument('new_map', default_value='true',
                               description='Delete the old RTAB-Map database on start'),
+        DeclareLaunchArgument('navigation', default_value='true',
+                              description='Also run Nav2 (needs mapping:=true)'),
         oak_camera,
         wheel_odom,
         motor,
-        image_relay,
         camera_tf,
         include('localization.launch.py'),
         include('rtabmap.launch.py', condition=IfCondition(LaunchConfiguration('mapping')),

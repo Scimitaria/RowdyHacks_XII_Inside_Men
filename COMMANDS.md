@@ -174,7 +174,7 @@ rtabmap-databaseViewer ~/.ros/rtabmap.db # browse the saved map (from ros-jazzy-
 ros2 launch robot_package robot.launch.py
 ```
 
-Starts `oak_camera` (images + IMU heading), `odom` (wheel odometry), the camera TF, the EKF and RTAB-Map. Don't run any of those separately, and stop any other `oak_camera` first, because only one process can open the camera. Keep the robot still for the first second while the gyro calibrates.
+Starts `oak_camera` (images + IMU heading), `odom` (wheel odometry), the camera TF, the EKF, RTAB-Map and Nav2 (see below). Don't run any of those separately, and stop any other `oak_camera` first, because only one process can open the camera. Keep the robot still for the first second while the gyro calibrates.
 
 Arguments (add as `name:=value`):
 
@@ -182,5 +182,38 @@ Arguments (add as `name:=value`):
 ros2 launch robot_package robot.launch.py cam_x:=0.12 cam_y:=0.0 cam_z:=0.2   # camera position on the robot, in meters
 ros2 launch robot_package robot.launch.py mapping:=false                      # skip RTAB-Map, only odometry + camera
 ros2 launch robot_package robot.launch.py new_map:=false                      # keep and extend the saved map
+ros2 launch robot_package robot.launch.py navigation:=false                   # skip Nav2
+```
+
+## Explore with Nav2
+
+One-time install of Nav2:
+
+```bash
+sudo apt install ros-jazzy-navigation2
+```
+
+`robot.launch.py` starts Nav2 (`navigation.launch.py`, params in `config/nav2_params.yaml`) on top of RTAB-Map. It plans on RTAB-Map's `/map` and avoids obstacles in the depth camera's point cloud (`/camera/depth/points`). The `cmd_vel` node turns Nav2's `/cmd_vel` into per-wheel duty on `/motor_cmd`; it goes quiet when Nav2 stops, so `keyboard` still works in between.
+
+Then, in another terminal, start exploring:
+
+```bash
+ros2 run robot_package explore
+```
+
+It picks the nearest reachable edge of the map and sends it to Nav2 as a goal, then the next one once the map shows that space. Frontiers Nav2 can't reach, or that stay unmapped after the robot gets there (glass, black surfaces), are skipped. Ctrl+C cancels the current goal. You can also send goals by hand from RViz's "2D Goal Pose".
+
+Calibrate `cmd_vel` once, robot on the floor with `robot.launch.py` running: drive at full duty for a moment and read the speed:
+
+```bash
+ros2 topic pub -r 10 -t 20 /motor_cmd std_msgs/msg/String "data: '1 100'"
+ros2 topic echo /wheel/odom --field twist.twist.linear.x   # in another terminal
+```
+
+Put that speed in the `cmd_vel` node's `max_wheel_speed` parameter (in `navigation.launch.py`), and raise `min_duty` if the wheels don't turn at small speeds. Check it with:
+
+```bash
+ros2 topic pub -r 10 -t 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.15}}"   # /wheel/odom should read ~0.15
+ros2 lifecycle get /bt_navigator                                                  # active once Nav2 is up
 ```
 

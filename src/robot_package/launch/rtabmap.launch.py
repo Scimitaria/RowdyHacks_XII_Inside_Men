@@ -27,30 +27,33 @@ def generate_launch_description():
             'subscribe_rgb': True,
             'approx_sync': True,
             'database_path': LaunchConfiguration('database_path'),
-            # The robot drives on flat ground: solve x, y and yaw only.
+            'map_always_update': True,
             'Reg/Force3DoF': 'true',
-            # 2D occupancy grid on /map from the depth image, used by the
-            # explore node to find unmapped space (-1 cells).
-            'Grid/Sensor': '1',
-            # Keep the grid 3D: /cloud_map is built from it, and with 'false'
-            # it is flattened onto the floor. /map is still projected to 2D.
-            'Grid/3D': 'true',
-            # Mark space between the camera and obstacles as free, not just
-            # floor the camera saw; otherwise seen space stays "unknown".
-            'Grid/RayTracing': 'true',
-            # 'Grid/RangeMax': '3.0',  # OAK depth gets noisy past a few metre
-            'Grid/MaxObstacleHeight': '1.0',  # ignore ceilings and overhangs
 
-            'RGBD/LinearUpdate': '0',
-            'RGBD/AngularUpdate': '0',
-            # Let a couple of "free" observations override an obstacle,
-            # and cap how sure the map can get that a cell is occupied.
+            'Grid/Sensor': '1',
+            # 3D grid for RViz; /map is still made from it in 2D
+            'Grid/3D': 'false',
+            # Mark the cells between the camera and each obstacle as free.
+            # With Grid/3D this goes through OctoMap, which the apt build of
+            # RTAB-Map has (without it, ray tracing is silently skipped).
+            'Grid/RayTracing': 'true',
+            'Grid/RangeMin': '0.3',
+            'Grid/RangeMax': '4.0',
+            'Grid/DepthDecimation': '2',
+
+            # Height-based ground segmentation (base_link at floor level)
+            'Grid/NormalsSegmentation': 'false',
+            'Grid/MaxGroundHeight': '0.05',
+            'Grid/MinGroundHeight': '-0.05',
+            'Grid/MaxObstacleHeight': '2.0',
+            'Grid/NoiseFilteringRadius': '0.05',
+            'Grid/NoiseFilteringMinNeighbors': '5',
+
+            'RGBD/LinearUpdate': '0.05',
+            'RGBD/AngularUpdate': '0.05',
+
             'GridGlobal/ProbMiss': '0.2',
             'GridGlobal/ProbClampingMax': '0.8',
-            # Longer rays clear more space behind where people stood.
-            # Balance against OAK depth noise.
-            'Grid/RangeMax': '4.0',
-            
         }],
         # Straight from oak_camera: RGB and depth share a stamp, are the same
         # size, and depth is aligned to RGB.
