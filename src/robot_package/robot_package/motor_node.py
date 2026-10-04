@@ -31,13 +31,9 @@ class KeyboardToUSB(Node):
         self.publisher_ = self.create_publisher(String, 'usb_data', 10)
         # write_timeout: if the Pico stops reading, fail instead of freezing the key loop
         self.serial = serial.Serial('/dev/ttyACM0', 115200, timeout=0.1, write_timeout=0.5)
-        self.create_subscription(Image, 'camera/depth/image_raw', self.on_depth, 10)
 
         self.duty_cycle = 50
         self.cmd = 0
-        self.nearest_mm = None
-
-        self.create_timer(1.0, self.log)
 
         self.get_logger().info(
             "\n============================================\n"
@@ -75,6 +71,36 @@ class KeyboardToUSB(Node):
             return False
         return True
 
+    def publish_usb(self):
+        msg = String()
+        msg.data = f"{self.cmd} {self.duty_cycle}"
+        self.publisher_.publish(msg)                     # optional: keeps it visible on the ROS topic
+        self.get_logger().info(f"Published USB_data: {msg.data}")
+        try:
+            self.serial.write((msg.data + '\n').encode())    # this is what actually reaches the Pico
+        except serial.SerialTimeoutException:
+            self.get_logger().error("Serial write timed out: is the Pico running the firmware?")
+
+class AlgorithmToUSB(Node):
+    def __init__(self):
+        super().__init__('algorithm_to_usb')
+
+        self.publisher_ = self.create_publisher(String, 'usb_data', 10)
+        # write_timeout: if the Pico stops reading, fail instead of freezing the key loop
+        self.serial = serial.Serial('/dev/ttyACM0', 115200, timeout=0.1, write_timeout=0.5)
+
+        self.duty_cycle = 75
+        self.cmd = 0
+        self.nearest_mm = None
+
+        self.create_timer(1.0, self.log)
+
+        self.get_logger().info(
+            "\n============================================\n"
+            "Algorithm to USB Node Started!\n"
+            "============================================\n"
+        )
+
     def on_depth(self, msg):
         depth = np.frombuffer(msg.data, dtype=np.uint16).reshape(msg.height, msg.width)
         # Only look at the middle of the frame so the floor and edges don't count
@@ -96,38 +122,6 @@ class KeyboardToUSB(Node):
             self.get_logger().info("Nearest object: no depth data")
         else:
             self.get_logger().info(f"Nearest object: {self.nearest_mm / 1000:.2f} m")
-
-    def publish_usb(self):
-        msg = String()
-        msg.data = f"{self.cmd} {self.duty_cycle}"
-        self.publisher_.publish(msg)                     # optional: keeps it visible on the ROS topic
-        self.get_logger().info(f"Published USB_data: {msg.data}")
-        try:
-            self.serial.write((msg.data + '\n').encode())    # this is what actually reaches the Pico
-        except serial.SerialTimeoutException:
-            self.get_logger().error("Serial write timed out: is the Pico running the firmware?")
-
-class AlgorithmToUSB(Node):
-    def __init__(self):
-        super().__init__('algorithm_to_usb')
-
-        self.publisher_ = self.create_publisher(String, 'usb_data', 10)
-        # write_timeout: if the Pico stops reading, fail instead of freezing the key loop
-        self.serial = serial.Serial('/dev/ttyACM0', 115200, timeout=0.1, write_timeout=0.5)
-
-        self.duty_cycle = 75
-        self.cmd = 0
-
-        self.get_logger().info(
-            "\n============================================\n"
-            "Algorithm to USB Node Started!\n"
-            "============================================\n"
-        )
-
-    def run(self):
-        while True:
-            self.cmd = 1
-            self.publish_usb()
 
     def publish_usb(self):
         msg = String()
