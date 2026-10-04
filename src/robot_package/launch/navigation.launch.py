@@ -70,7 +70,9 @@ def generate_launch_description():
             'max_tps': 3046,
         }],
     )
-    # Picks frontiers on /map and sends them to Nav2; waits for Nav2 to come up
+    # Picks frontiers on /map and sends them to Nav2; waits for Nav2 to come up.
+    # In `ros2 run robot_package keyboard_odom`, SPACE pauses it and takes over,
+    # BACKSPACE hands control back.
     explore = Node(package='robot_package', executable='explore', output='screen')
 
     return LaunchDescription([

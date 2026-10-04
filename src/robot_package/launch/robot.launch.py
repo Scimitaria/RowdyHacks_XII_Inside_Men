@@ -88,7 +88,4 @@ def generate_launch_description():
         include('localization.launch.py'),
         include('rtabmap.launch.py', condition=IfCondition(LaunchConfiguration('mapping')),
                 new_map=LaunchConfiguration('new_map')),
-        # Nav2 and the explorer read RTAB-Map's /map, so they need mapping too
-        include('navigation.launch.py', condition=IfCondition(AndSubstitution(
-            LaunchConfiguration('mapping'), LaunchConfiguration('navigation')))),
     ])

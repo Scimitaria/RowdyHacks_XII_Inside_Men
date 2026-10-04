@@ -18,6 +18,7 @@ from robot_package.motor_node import (CMD_BACKWARD, CMD_FORWARD, CMD_LEFT, CMD_R
 KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT = 'up', 'down', 'right', 'left'
 KEY_ESC = '\x1b'
 KEY_SPACE = ' '
+KEY_BACKSPACE = '\x7f'
 FOCUS_OUT = 'focus-out'      # the terminal window lost focus (keys can't be tracked)
 REPLY_FLAGS = 'reply-flags'  # terminal answered the kitty keyboard protocol query
 REPLY_DA = 'reply-da'        # terminal answered the device attributes query
@@ -59,7 +60,8 @@ def read_event(fd):
     """
     ch = read_byte(fd)
     if ch != KEY_ESC:
-        return ch, PRESS
+        # Some terminals send Ctrl+H for backspace
+        return (KEY_BACKSPACE if ch == '\x08' else ch), PRESS
     # A lone ESC has nothing following it, so wait briefly to tell it from a sequence
     if read_byte(fd, 0.05) != '[':
         return KEY_ESC, PRESS
@@ -88,7 +90,7 @@ def read_event(fd):
         return ARROWS[ch], event
     if ch == 'u':
         code = fields[0].split(':')[0]
-        return {'27': KEY_ESC, '32': KEY_SPACE}.get(code), event
+        return {'27': KEY_ESC, '32': KEY_SPACE, '127': KEY_BACKSPACE}.get(code), event
     return None, event
 
 

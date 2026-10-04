@@ -36,7 +36,7 @@ def generate_launch_description():
             # Mark the cells between the camera and each obstacle as free, so
             # seen space isn't left unknown (which the explorer would chase).
             'Grid/RayTracing': 'true',
-            'Grid/RangeMin': '0.3',
+            'Grid/RangeMin': '0.15',
             'Grid/RangeMax': '4.0',
             'Grid/DepthDecimation': '2',
 
@@ -51,7 +51,7 @@ def generate_launch_description():
             'RGBD/LinearUpdate': '0.05',
             'RGBD/AngularUpdate': '0.05',
 
-            'GridGlobal/ProbMiss': '0.2',
+            'GridGlobal/ProbMiss': '0.4',
             'GridGlobal/ProbClampingMax': '0.8',
         }],
         # Straight from oak_camera: RGB and depth share a stamp, are the same

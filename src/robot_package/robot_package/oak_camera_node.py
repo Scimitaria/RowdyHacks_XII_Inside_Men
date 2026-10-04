@@ -90,7 +90,7 @@ class OakCamera(Node):
             pp.speckleFilter.speckleRange = 48
             pp.spatialFilter.enable = True
             pp.temporalFilter.enable = False
-            pp.thresholdFilter.minRange = 300    # mm
+            pp.thresholdFilter.minRange = 150    # mm
             pp.thresholdFilter.maxRange = 4000   # mm, matches Grid/RangeMax
             outputs['depth'] = stereo.depth
 

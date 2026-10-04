@@ -16,6 +16,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.signals import SignalHandlerOptions
+from std_msgs.msg import Bool
 from tf2_ros import Buffer, TransformException, TransformListener
 
 
@@ -36,14 +37,19 @@ class Explorer(Node):
     100 occupied) and the robot pose from TF (map -> base_link). A frontier is
     a free cell next to unknown ones. A breadth-first search over free cells
     finds the nearest frontier the robot can actually drive to, so ones around
-    corners and through doorways count, not just ones in line of sight. That
-    frontier goes to Nav2 as a NavigateToPose goal; Nav2 plans, drives and
+    corners and through doorways count, not just ones in line of sight.
+    Frontiers closer than min_frontier_dist_m by path are passed over, so the
+    robot makes fewer, longer trips instead of stopping every few steps; if
+    only close ones are left, the nearest is used. That frontier goes to Nav2 as a NavigateToPose goal; Nav2 plans, drives and
     avoids obstacles.
 
-    If the camera sees past the frontier before the robot gets there, the goal
-    is cancelled and the next one picked. Frontiers Nav2 can't reach, or that
+    If the camera sees past the frontier before the robot gets there, the next
+    one is sent in its place; Nav2 switches goals without stopping the robot. Frontiers Nav2 can't reach, or that
     stay unknown after the robot arrives (glass, black surfaces, beyond depth
     range), are skipped from then on.
+
+    keyboard_odom can take the robot over: True on /manual_control cancels the
+    current goal and pauses exploring, False resumes it.
     """
 
     def __init__(self):
@@ -53,15 +59,19 @@ class Explorer(Node):
         self.declare_parameter('blind_radius_m', 0.5)    # camera can't see this close: treat as free
         self.declare_parameter('min_unknown', 6)         # unknown cells in a 5x5 block to count as a frontier
         self.declare_parameter('dead_end_radius_m', 0.5)
+        self.declare_parameter('min_frontier_dist_m', 1.0)  # prefer frontiers at least this far by path
         self.declare_parameter('initial_spin', True)     # look all around before the first goal
         self.robot_radius_m = self.get_parameter('robot_radius_m').value
         self.blind_radius_m = self.get_parameter('blind_radius_m').value
         self.min_unknown = self.get_parameter('min_unknown').value
         self.dead_end_radius_m = self.get_parameter('dead_end_radius_m').value
+        self.min_frontier_dist_m = self.get_parameter('min_frontier_dist_m').value
 
         # RTAB-Map publishes /map latched
         map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.create_subscription(OccupancyGrid, 'map', self.on_map, map_qos)
+        # keyboard_odom publishes it latched too
+        self.create_subscription(Bool, 'manual_control', self.on_manual_control, map_qos)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.nav = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -73,6 +83,8 @@ class Explorer(Node):
         self.reached = None           # (frontier, map_count): arrived, waiting to see if it got mapped
         self.dead_ends = []           # frontiers to skip
         self.spin_state = 'pending' if self.get_parameter('initial_spin').value else 'done'
+        self.spin_handle = None
+        self.manual = False           # keyboard_odom is driving: send no goals
         self.status = None
 
         self.create_timer(1.0, self.control)
@@ -87,6 +99,23 @@ class Explorer(Node):
         cells = np.array(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
         self.grid = (cells, msg.info)
         self.map_count += 1
+
+    def on_manual_control(self, msg):
+        if msg.data == self.manual:
+            return
+        self.manual = msg.data
+        if not self.manual:
+            self.get_logger().info("Keyboard handed control back, resuming exploration")
+            return
+        self.get_logger().info("Keyboard took control, cancelling the current goal")
+        if self.goal is not None and self.goal.handle is not None:
+            self.goal.handle.cancel_goal_async()
+        # Clearing these makes the goal callbacks ignore the cancelled goal
+        self.goal = None
+        self.reached = None
+        if self.spin_state == 'spinning' and self.spin_handle is not None:
+            self.spin_handle.cancel_goal_async()
+        self.spin_state = 'done'
 
     def robot_pose(self):
         """(x, y) of base_link in the map frame, or None if TF isn't ready."""
@@ -142,22 +171,33 @@ class Explorer(Node):
         for dx, dy in self.dead_ends:
             frontier &= ~near(dx, dy, self.dead_end_radius_m)
 
-        # Breadth-first search from the robot: the first frontier found is the closest by path
+        # Breadth-first search from the robot: frontiers come out closest by path first.
+        # Take the first one at least min_frontier_dist_m away.
         passable, frontier = passable.ravel().tolist(), frontier.ravel().tolist()
+        min_steps = self.min_frontier_dist_m / res
         start = row * w + col
         parent = {start: None}
+        steps = {start: 0}
+        nearest = None
         queue = deque([start])
         while queue:
             i = queue.popleft()
             if frontier[i]:
-                break
+                if steps[i] >= min_steps:
+                    break
+                if nearest is None:
+                    nearest = i
             r, c = divmod(i, w)
             for j, inside in ((i - w, r > 0), (i + w, r < h - 1), (i - 1, c > 0), (i + 1, c < w - 1)):
                 if inside and passable[j] and j not in parent:
                     parent[j] = i
+                    steps[j] = steps[i] + 1
                     queue.append(j)
         else:
-            return None
+            # Only close frontiers left: go to the nearest rather than stop exploring
+            if nearest is None:
+                return None
+            i = nearest
 
         path = []
         while i is not None:
@@ -168,6 +208,8 @@ class Explorer(Node):
         return path
 
     def control(self):
+        if self.manual:
+            return self.set_status("paused: keyboard_odom in control")
         if self.grid is None:
             return self.set_status("waiting for /map")
         if not self.nav.server_is_ready():
@@ -185,9 +227,15 @@ class Explorer(Node):
             # Only judge it on a map made after it was sent
             if (goal.handle and not goal.canceling and self.map_count > goal.map_count
                     and not self.is_frontier(goal.xy)):
-                self.get_logger().info("Frontier mapped before getting there, picking the next one")
-                goal.canceling = True
-                goal.handle.cancel_goal_async()
+                path = self.plan(*pose)
+                if path is None:
+                    self.get_logger().info("Frontier mapped before getting there, none left")
+                    goal.canceling = True
+                    goal.handle.cancel_goal_async()
+                else:
+                    # Nav2 aborts the old goal for the new one; its result is ignored
+                    self.get_logger().info("Frontier mapped before getting there, switching to the next one")
+                    self.send_goal(path)
             else:
                 dist = math.dist(goal.xy, pose)
                 self.set_status(f"navigating to frontier ({goal.xy[0]:.1f}, {goal.xy[1]:.1f}), "
@@ -225,6 +273,11 @@ class Explorer(Node):
             if not handle.accepted:
                 self.spin_state = 'done'
                 return
+            if self.manual:
+                # Keyboard took over while the goal was on its way
+                handle.cancel_goal_async()
+                return
+            self.spin_handle = handle
             handle.get_result_async().add_done_callback(on_result)
 
         self.spin.send_goal_async(goal).add_done_callback(on_response)
@@ -259,6 +312,10 @@ class Explorer(Node):
 
         def on_response(future):
             if self.goal is not goal:
+                handle = future.result()
+                if self.manual and handle.accepted:
+                    # Keyboard took over while the goal was on its way
+                    handle.cancel_goal_async()
                 return
             handle = future.result()
             if not handle.accepted:

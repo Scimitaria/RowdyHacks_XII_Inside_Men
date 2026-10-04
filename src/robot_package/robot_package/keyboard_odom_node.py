@@ -13,11 +13,13 @@ import tty
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from std_msgs.msg import Bool, String
 
-from robot_package.keyboard_node import (DISABLE_KEY_EVENTS, DRIVE_KEYS, FOCUS_OUT, KEY_DOWN,
-                                         KEY_ESC, KEY_LEFT, KEY_RIGHT, KEY_SPACE, KEY_UP, PERIOD,
-                                         PRESS, RELEASE, TURN_KEYS, enable_key_events, read_event)
+from robot_package.keyboard_node import (DISABLE_KEY_EVENTS, DRIVE_KEYS, FOCUS_OUT, KEY_BACKSPACE,
+                                         KEY_DOWN, KEY_ESC, KEY_LEFT, KEY_RIGHT, KEY_SPACE, KEY_UP,
+                                         PERIOD, PRESS, RELEASE, TURN_KEYS, enable_key_events,
+                                         read_event)
 from robot_package.motor_pid_node import CMD_SPEED, CMD_STOP
 
 
@@ -27,6 +29,13 @@ class KeyboardPidTeleop(Node):
     UP/DOWN drive, ramping from 'ramp_start' to 'speed' (ticks/s). LEFT/RIGHT
     spin in place at 'turn_speed', or curve while driving (outer wheel 'speed',
     inner wheel 'arc_inner_speed'). Letting go of every key stops the robot.
+
+    Shares the robot with explore_node. If the explorer is running at startup
+    it keeps control and this node publishes nothing on 'motor_pid_cmd'. SPACE
+    takes over: it publishes True on the latched 'manual_control' topic, so the
+    explorer cancels its Nav2 goal, and stops the robot. BACKSPACE stops the
+    robot and hands it back (False). Exiting while in control stops the robot
+    but leaves the explorer paused until a keyboard hands it back.
 
     With 'key_events' (the terminal supports the kitty keyboard protocol) the
     node sees real key releases. Otherwise the terminal only sends presses and
@@ -63,6 +72,14 @@ class KeyboardPidTeleop(Node):
         self.logged_mode = None
 
         self.publisher_ = self.create_publisher(String, 'motor_pid_cmd', 10)
+        # Latched, so an explorer started later still learns who is driving
+        self.manual_pub = self.create_publisher(
+            Bool, 'manual_control', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        # Start with the explorer in control if it's running. Otherwise drive
+        # right away, and say so in case the explorer was just missed.
+        self.manual = not self.explorer_running()
+        if self.manual:
+            self.manual_pub.publish(Bool(data=True))
         # motor_pid_driver stops the robot if commands stop arriving, so keep sending
         self.create_timer(PERIOD, self.update)
 
@@ -78,14 +95,52 @@ class KeyboardPidTeleop(Node):
             f"Hold LEFT/RIGHT: spin at {self.turn_speed}\n"
             f"Both: curve ({self.top_speed}/{self.arc_inner_speed})\n"
             "Release keys or SPACE: stop, ESC: stop and exit\n"
+            "SPACE while exploring: stop the explorer and take over\n"
+            "BACKSPACE: stop and hand control back to the explorer\n"
             + keys +
             "============================================\n"
         )
+        self.log_control()
+
+    def explorer_running(self, wait=1.0):
+        """Whether explore_node shows up in the ROS graph within 'wait' seconds."""
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            if 'explorer' in self.get_node_names():
+                return True
+            time.sleep(0.1)
+        return False
+
+    def log_control(self):
+        if self.manual:
+            self.get_logger().info("Keyboard in control (BACKSPACE: hand back to the explorer)")
+        else:
+            self.get_logger().info("Explorer in control (SPACE: stop it and take over)")
+
+    def set_manual(self, manual):
+        """Take control from the explorer (True) or hand it back (False). Call with the lock held."""
+        self.held.clear()
+        if not manual:
+            # Stop before going quiet; Nav2 takes over from standstill
+            self.publisher_.publish(String(data=f"{CMD_STOP}"))
+        self.manual = manual
+        self.logged_mode = None
+        self.manual_pub.publish(Bool(data=manual))
+        self.log_control()
 
     def on_key(self, key, event):
         """Handle a key event. Returns False when the node should exit."""
         with self.lock:
+            if key == KEY_BACKSPACE:
+                if event != RELEASE and self.manual:
+                    self.set_manual(False)
+                return True
             if key in DRIVE_KEYS or key in TURN_KEYS:
+                if not self.manual:
+                    if event != RELEASE:
+                        self.get_logger().info("Explorer in control: press SPACE to take over",
+                                               throttle_duration_sec=2.0)
+                    return True
                 if event == RELEASE:
                     self.held.discard(key)
                 else:
@@ -100,6 +155,8 @@ class KeyboardPidTeleop(Node):
                     self.key_seen = time.monotonic()
             elif key in (KEY_SPACE, KEY_ESC, FOCUS_OUT) and event != RELEASE:
                 self.held.clear()
+                if key == KEY_SPACE and not self.manual:
+                    self.set_manual(True)
             else:
                 return True
         self.update(ramp=False)
@@ -110,6 +167,8 @@ class KeyboardPidTeleop(Node):
 
     def update(self, ramp=True):
         with self.lock:
+            if not self.manual:
+                return                          # leave motor_pid_cmd to Nav2
             if not self.key_events and time.monotonic() - self.key_seen > self.hold_timeout:
                 self.held.clear()               # no key repeating: all released
             drive = (KEY_UP in self.held) - (KEY_DOWN in self.held)
@@ -171,7 +230,7 @@ def main(args=None):
         if node is not None:
             # Stop on exit. After Ctrl+C rclpy is already shut down and can't publish;
             # then motor_pid_driver's timeout stops the robot instead.
-            if rclpy.ok():
+            if rclpy.ok() and node.manual:
                 node.on_key(KEY_SPACE, PRESS)
             node.destroy_node()
         rclpy.try_shutdown()
