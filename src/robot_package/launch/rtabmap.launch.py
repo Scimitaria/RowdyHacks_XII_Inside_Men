@@ -29,6 +29,17 @@ def generate_launch_description():
             'database_path': LaunchConfiguration('database_path'),
             # The robot drives on flat ground: solve x, y and yaw only.
             'Reg/Force3DoF': 'true',
+            # Occupancy map from depth with ray tracing: cells the camera later
+            # sees through are cleared, so people who walk away disappear.
+            # Only /octomap_* and /map clear; /cloud_map keeps every point.
+            'Grid/Sensor': '1',
+            'Grid/3D': 'true',
+            'Grid/RayTracing': 'true',
+            'Grid/CellSize': '0.05',
+            # OAK depth is noisy past ~4 m; far noise makes obstacles that never clear.
+            'Grid/RangeMax': '4.0',
+            'Grid/NoiseFilteringRadius': '0.1',
+            'Grid/NoiseFilteringMinNeighbors': '5',
         }],
         # Straight from oak_camera: RGB and depth share a stamp, are the same
         # size, and depth is aligned to RGB.
