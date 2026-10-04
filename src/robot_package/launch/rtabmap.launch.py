@@ -1,4 +1,4 @@
-"""Start the RTAB-Map feeder and the RTAB-Map SLAM node."""
+"""Start the RTAB-Map SLAM node, fed directly by oak_camera."""
 
 import os
 
@@ -15,14 +15,6 @@ def generate_launch_description():
     new_map = LaunchConfiguration('new_map')
     odom_topic = LaunchConfiguration('odom_topic')
 
-    feeder = Node(
-        package='robot_package',
-        executable='rtabmap_feeder',
-        output='screen',
-        parameters=[{'base_frame': base_frame, 'odom_frame': odom_frame,
-                     'odom_topic': odom_topic}],
-    )
-
     rtabmap_args = dict(
         package='rtabmap_slam',
         executable='rtabmap',
@@ -38,10 +30,12 @@ def generate_launch_description():
             # The robot drives on flat ground: solve x, y and yaw only.
             'Reg/Force3DoF': 'true',
         }],
+        # Straight from oak_camera: RGB and depth share a stamp, are the same
+        # size, and depth is aligned to RGB.
         remappings=[
-            ('rgb/image', 'rtabmap_input/rgb/image'),
-            ('depth/image', 'rtabmap_input/depth/image'),
-            ('rgb/camera_info', 'rtabmap_input/rgb/camera_info'),
+            ('rgb/image', 'camera/rgb/image_raw'),
+            ('depth/image', 'camera/depth/image_raw'),
+            ('rgb/camera_info', 'camera/rgb/camera_info'),
             ('odom', odom_topic),
         ],
     )
@@ -61,7 +55,6 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'new_map', default_value='true',
             description="Delete the old database at 'database_path' on start"),
-        feeder,
         rtabmap_new,
         rtabmap_resume,
     ])

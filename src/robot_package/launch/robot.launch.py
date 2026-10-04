@@ -21,7 +21,8 @@ def generate_launch_description():
             launch_arguments=launch_arguments.items(),
             condition=condition)
 
-    # Publishes camera/rgb, camera/depth and rotation_degrees (the IMU heading).
+    # Publishes camera/rgb, camera/depth, and the IMU heading on imu/data
+    # (which the EKF reads).
     # Keep the robot still for the first second while the gyro calibrates.
     oak_camera = Node(package='robot_package', executable='oak_camera',
                       output='screen')
@@ -40,7 +41,7 @@ def generate_launch_description():
                    '--z', LaunchConfiguration('cam_z'),
                    '--roll', '-1.5708', '--pitch', '0', '--yaw', '-1.5708',
                    '--frame-id', 'base_link',
-                   '--child-frame-id', 'oak_camera'],
+                   '--child-frame-id', 'oak_camera_optical'],
     )
 
     return LaunchDescription([
@@ -51,7 +52,7 @@ def generate_launch_description():
         DeclareLaunchArgument('cam_z', default_value='0.3302',
                               description='Camera height above base_link (m), 13 in'),
         DeclareLaunchArgument('mapping', default_value='true',
-                              description='Also run the camera feeder and RTAB-Map'),
+                              description='Also run RTAB-Map'),
         DeclareLaunchArgument('new_map', default_value='true',
                               description='Delete the old RTAB-Map database on start'),
         oak_camera,

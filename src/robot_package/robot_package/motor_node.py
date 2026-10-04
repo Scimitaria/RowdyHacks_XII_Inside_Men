@@ -1,6 +1,8 @@
-import os,select,sys,termios,tty,rclpy,serial
+import os,select,sys,termios,threading,tty,rclpy,serial
+import numpy as np
 from rclpy.node import Node
 from std_msgs.msg import String
+from sensor_msgs.msg import Image
 
 # Terminal escape sequences for arrow keys
 KEY_UP = '\x1b[A'
@@ -29,9 +31,13 @@ class KeyboardToUSB(Node):
         self.publisher_ = self.create_publisher(String, 'usb_data', 10)
         # write_timeout: if the Pico stops reading, fail instead of freezing the key loop
         self.serial = serial.Serial('/dev/ttyACM0', 115200, timeout=0.1, write_timeout=0.5)
+        self.create_subscription(Image, 'camera/depth/image_raw', self.on_depth, 10)
 
-        self.duty_cycle = 80
+        self.duty_cycle = 50
         self.cmd = 0
+        self.nearest_mm = None
+
+        self.create_timer(1.0, self.log)
 
         self.get_logger().info(
             "\n============================================\n"
@@ -63,9 +69,33 @@ class KeyboardToUSB(Node):
             self.cmd = 5
             self.publish_usb()
         if key == KEY_ESC:
+            self.cmd = 5
+            self.publish_usb()
             self.get_logger().info("Exiting keyboard listener...")
             return False
         return True
+
+    def on_depth(self, msg):
+        depth = np.frombuffer(msg.data, dtype=np.uint16).reshape(msg.height, msg.width)
+        # Only look at the middle of the frame so the floor and edges don't count
+        h, w = depth.shape
+        roi = depth[h // 3 : 2 * h // 3, w // 4 : 3 * w // 4]
+        valid = roi[roi > 0]  # 0 = no depth reading
+        # 1st percentile instead of min() so one noisy pixel doesn't set the distance
+        self.nearest_mm = float(np.percentile(valid, 1)) if valid.size else None
+
+        if self.nearest_mm and (self.nearest_mm/1000) < 1.0:
+            self.cmd = 3
+            self.publish_usb()
+        elif self.nearest_mm and (self.nearest_mm/1000) >= 1.0:
+            self.cmd = 1
+            self.publish_usb()
+
+    def log(self):
+        if self.nearest_mm is None:
+            self.get_logger().info("Nearest object: no depth data")
+        else:
+            self.get_logger().info(f"Nearest object: {self.nearest_mm / 1000:.2f} m")
 
     def publish_usb(self):
         msg = String()
@@ -120,6 +150,11 @@ def main(args=None):
         node = KeyboardToUSB()
     else: 
         node = AlgorithmToUSB()
+
+    # Spin in the background so timers and subscriptions fire while the main thread blocks on keys
+    threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
+
+    if isinstance(node, AlgorithmToUSB):
         node.run()
 
     fd = sys.stdin.fileno()

@@ -5,21 +5,26 @@ import math
 import depthai as dai
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float64
+from sensor_msgs.msg import Imu
 
-from robot_package.imu_yaw import YawTracker, create_imu_queue
+from robot_package.imu_yaw import YawTracker, create_imu_queue, yaw_to_imu
 
 
 class ImuTracker(Node):
-    """Publish the IMU's heading in degrees on 'rotation_degrees'."""
+    """Publish the IMU's heading as a sensor_msgs/Imu on 'imu/data' (read by the EKF)."""
 
     def __init__(self):
         super().__init__('imu_tracker')
 
         self.declare_parameter('use_orientation', False)
         self.declare_parameter('imu_rate', 200)
+        # The yaw is about the robot's vertical axis, so it belongs to base_link.
+        self.declare_parameter('imu_frame_id', 'base_link')
+        self.declare_parameter('yaw_variance', 0.01)
         self.use_orientation = self.get_parameter('use_orientation').value
         imu_rate = self.get_parameter('imu_rate').value
+        self.imu_frame_id = self.get_parameter('imu_frame_id').value
+        self.yaw_variance = self.get_parameter('yaw_variance').value
 
         self.tracker = YawTracker(self.use_orientation, self.get_logger().info)
 
@@ -28,7 +33,7 @@ class ImuTracker(Node):
             self.pipeline, self.use_orientation, imu_rate)
         self.pipeline.start()
 
-        self.publisher_ = self.create_publisher(Float64, 'rotation_degrees', 10)
+        self.imu_pub = self.create_publisher(Imu, 'imu/data', 10)
         self.create_timer(0.005, self.poll_imu)
         self.create_timer(1.0, self.log_rotation)
 
@@ -42,9 +47,9 @@ class ImuTracker(Node):
             for packet in imu_data.packets:
                 yaw = self.tracker.update(packet)
                 if yaw is not None:
-                    out = Float64()
-                    out.data = math.degrees(yaw)
-                    self.publisher_.publish(out)
+                    self.imu_pub.publish(yaw_to_imu(
+                        yaw, self.get_clock().now().to_msg(),
+                        self.imu_frame_id, self.yaw_variance))
 
     def log_rotation(self):
         self.get_logger().info(

@@ -61,7 +61,7 @@ Node parameters:
 ros2 run robot_package oak_camera --ros-args -p fps:=30 -p publish_depth:=false
 ```
 
-Only one process can use the camera at a time. `oak_camera` also publishes the IMU heading on `rotation_degrees` (the same topic as `imu_tracker`), so run `oak_camera` on its own and don't start `imu_tracker` alongside it. Use `-p publish_imu:=false` to turn the IMU off, or run `imu_tracker` by itself when you don't need images.
+Only one process can use the camera at a time. `oak_camera` also publishes the IMU heading on `/imu/data` (`sensor_msgs/Imu`, for the EKF), the same topic as `imu_tracker`, so run `oak_camera` on its own and don't start `imu_tracker` alongside it. Use `-p publish_imu:=false` to turn the IMU off, or run `imu_tracker` by itself when you don't need images.
 
 ## Read the wheel encoders (Pico)
 
@@ -84,6 +84,24 @@ ros2 topic echo /wheel/odom --field twist.twist   # vx / yaw rate while driving
 
 `ticks_per_rev` is 4 x (encoder pulses per motor turn) x (gear ratio). If turning in place reports too much or too little rotation, adjust `wheel_base`. Add `-p publish_tf:=true` only when running without the EKF.
 
+## View the camera from another computer
+
+On the Pi, run this next to whatever starts `oak_camera` (e.g. `robot.launch.py`). It publishes JPEG and PNG versions of the images, about 34 Mbit/s in total instead of about 170 Mbit/s raw:
+
+```bash
+ros2 launch robot_package compress.launch.py                # RGB + depth
+ros2 launch robot_package compress.launch.py depth:=false   # RGB only, less bandwidth
+```
+
+On the laptop (see `nix-laptop/`), inside `nix develop`:
+
+```bash
+ros2 topic list                                  # camera/... topics from the Pi
+ros2 run rqt_image_view rqt_image_view           # pick /camera/rgb/image_raw, set transport to "compressed"
+```
+
+Never view the raw `image_raw` topics from the laptop; use the compressed ones.
+
 ## Slot counter Pico (optional)
 
 `src/pi_pico_slot_counter` is firmware for a Pico that only counts slotted-disc wheel sensors (GPIO 10 = motor A, GPIO 12 = motor B, one count per slot). Build it and copy the `.uf2` onto the Pico while holding BOOTSEL:
@@ -102,13 +120,13 @@ One-time install of the EKF package:
 sudo apt install ros-jazzy-robot-localization
 ```
 
-With `imu_tracker` and `odom` (`/wheel/odom`) running, start the adapter and EKF:
+With `imu_tracker` (or `oak_camera`) and `odom` (`/wheel/odom`) running, start the EKF:
 
 ```bash
 ros2 launch robot_package localization.launch.py
 ```
 
-`imu_adapter` turns `rotation_degrees` into `/imu/data`; the EKF (`config/ekf.yaml`) fuses it with `/wheel/odom` into `/odometry/filtered` and the `odom -> base_link` TF.
+The EKF (`config/ekf.yaml`) fuses the heading on `/imu/data` with `/wheel/odom` into `/odometry/filtered` and the `odom -> base_link` TF.
 
 Check it:
 

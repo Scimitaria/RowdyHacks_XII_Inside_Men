@@ -1,4 +1,4 @@
-"""Run the IMU adapter and the robot_localization EKF."""
+"""Run the robot_localization EKF (reads /imu/data and /wheel/odom)."""
 
 import os
 
@@ -12,12 +12,6 @@ def generate_launch_description():
         get_package_share_directory('robot_package'), 'config', 'ekf.yaml')
 
     return LaunchDescription([
-        Node(
-            package='robot_package',
-            executable='imu_adapter',
-            name='imu_adapter',
-            output='screen',
-        ),
         Node(
             package='robot_localization',
             executable='ekf_node',

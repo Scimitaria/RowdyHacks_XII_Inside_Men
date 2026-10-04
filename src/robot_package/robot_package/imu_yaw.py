@@ -3,9 +3,31 @@
 import math
 
 import depthai as dai
+from sensor_msgs.msg import Imu
 
 # Samples averaged at startup to find the gravity direction and gyro bias.
 CALIBRATION_SAMPLES = 200
+# Roll/pitch are not measured; a huge variance tells the EKF to ignore them.
+UNKNOWN_VARIANCE = 1e6
+
+
+def yaw_to_imu(yaw, stamp, frame_id, yaw_variance):
+    """Wrap a yaw (radians) in a sensor_msgs/Imu for the EKF ('imu/data')."""
+    imu = Imu()
+    imu.header.stamp = stamp
+    imu.header.frame_id = frame_id
+    # Rotation about Z only.
+    imu.orientation.z = math.sin(yaw / 2.0)
+    imu.orientation.w = math.cos(yaw / 2.0)
+    imu.orientation_covariance = [
+        UNKNOWN_VARIANCE, 0.0, 0.0,
+        0.0, UNKNOWN_VARIANCE, 0.0,
+        0.0, 0.0, yaw_variance,
+    ]
+    # -1 in the first element means "this field is not provided".
+    imu.angular_velocity_covariance[0] = -1.0
+    imu.linear_acceleration_covariance[0] = -1.0
+    return imu
 
 
 def create_imu_queue(pipeline, use_orientation, imu_rate):

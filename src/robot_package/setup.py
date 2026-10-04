@@ -31,9 +31,7 @@ setup(
             'motor = robot_package.motor_node:main',
             'imu_tracker = robot_package.imu_tracker_node:main',
             'oak_camera = robot_package.oak_camera_node:main',
-            'camera_viewer = robot_package.camera_viewer_node:main',
-            'rtabmap_feeder = robot_package.rtabmap_node:main',
-            'imu_adapter = robot_package.imu_adapter_node:main',
+            'camera_viewer = robot_package.camera_viewer_node:main', #node to view camera feed
             'odom = robot_package.odom_node:main',
         ],
     },
