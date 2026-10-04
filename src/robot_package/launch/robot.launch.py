@@ -1,4 +1,4 @@
-"""Start the whole stack: camera + IMU, wheel odometry, motor driver, JPEG image relay, EKF and RTAB-Map."""
+"""Start the whole stack: camera + IMU, wheel odometry, motor driver, JPEG image relay, EKF, RTAB-Map and Nav2 exploration."""
 
 import os
 
@@ -7,7 +7,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import AndSubstitution, LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -73,4 +73,7 @@ def generate_launch_description():
         include('localization.launch.py'),
         include('rtabmap.launch.py', condition=IfCondition(LaunchConfiguration('mapping')),
                 new_map=LaunchConfiguration('new_map')),
+        # Nav2 and the explorer read RTAB-Map's /map, so they need mapping too
+        include('navigation.launch.py', condition=IfCondition(AndSubstitution(
+            LaunchConfiguration('mapping'), LaunchConfiguration('navigation')))),
     ])
